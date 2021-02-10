@@ -3,6 +3,7 @@ using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.Net.Http;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Microsoft.Azure.Relay;
@@ -13,30 +14,22 @@ namespace Ikspoz.Cli
     {
         public static async Task<int> Main(string[] args)
         {
-            var (rootCommand, _, _) = BuildRootCommand();
-
-            var parser = new CommandLineBuilder(rootCommand)
+            var parser = new CommandLineBuilder(BuildRootCommand())
                 .UseDefaults()
                 .Build();
 
             return await parser.Parse(args).InvokeAsync();
         }
 
-        private static (RootCommand rootCommand, (Option azureSubscriptionIdOption, Option azureRelayNamespaceOption, Option azureResourceGroupNameOption) azureOptions, Option confirmOption) BuildRootCommand()
+        private static RootCommand BuildRootCommand()
         {
-            var auzreSubscriptionIdOption = BuildAzureSubscriptionIdOption();
-            var azureResourceGroupNameOption = BuildAzureResourceGroupNameOption();
-            var azureRelayNamespaceOption = BuildRelayNamespaceOption();
-            var confirmOption = new Option<bool>("--confirm");
-
             var rootCommand = new RootCommand
             {
-                Handler = CommandHandler.Create(async (string azureSubscriptionId, string azureResourceGroupName, string azureRelayNamespace) =>
+                Handler = CommandHandler.Create(async (string azureSubscriptionId, string azureResourceGroupName, string azureRelayNamespace, Uri tunnelTargetBaseUrl) =>
                 {
                     Console.WriteLine("Welcome to ikspoz!");
 
                     var azureCredential = new DefaultAzureCredential(includeInteractiveCredentials: true);
-
 
                     var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }));
 
@@ -55,7 +48,6 @@ namespace Ikspoz.Cli
 
                         Console.WriteLine($"Connection prepared! {hybridConnectionDetails.Id}");
 
-
                         await ListenToConnection(hybridConnectionDetails);
 
                         Console.WriteLine("Done!");
@@ -68,25 +60,24 @@ namespace Ikspoz.Cli
 
                     async Task ListenToConnection(Microsoft.Azure.Management.Relay.Models.HybridConnection hybridConnectionDetails)
                     {
-                        var tokenProvider = TokenProvider.CreateSharedAccessSignatureTokenProvider("manualPolicy", "");
-                        var hybridConnectionListener = new HybridConnectionListener(new Uri($"sb://{azureRelayNamespace}.servicebus.windows.net/testName"), tokenProvider)
-                        {
-                            RequestHandler = (context) =>
-                            {
-                                Console.WriteLine($"Request received: {context.Request.HttpMethod} - {context.Request.Url}");
+                        Console.WriteLine($"Connecting...");
 
-                                context.Response.StatusCode = System.Net.HttpStatusCode.InternalServerError;
-                                context.Response.StatusDescription = "Not Implemented Yet";
-                                context.Response.Close();
-                            }
+                        var tokenProvider = TokenProvider.CreateSharedAccessSignatureTokenProvider("manualPolicy", "");
+                        var hybridConnectionEndpointUri = new Uri($"sb://{azureRelayNamespace}.servicebus.windows.net/testName/");
+
+                        var tunnelingHttpClient = new HttpClient
+                        {
+                            BaseAddress = tunnelTargetBaseUrl
                         };
 
-                        Console.WriteLine($"Connecting...");
+                        var hybridConnectionListener = new HybridConnectionListener(hybridConnectionEndpointUri, tokenProvider)
+                        {
+                            RequestHandler = TunnelRequest
+                        };
 
                         await hybridConnectionListener.OpenAsync();
 
                         Console.WriteLine($"Connected!");
-
 
                         Console.WriteLine("Press any key to shut down...");
                         Console.ReadKey();
@@ -96,16 +87,52 @@ namespace Ikspoz.Cli
                         await hybridConnectionListener.CloseAsync();
 
                         Console.WriteLine($"Shut down.");
+
+                        async void TunnelRequest(RelayedHttpListenerContext context)
+                        {
+                            var request = context.Request;
+
+                            Console.WriteLine($"Request received: {request.HttpMethod} - {request.Url}");
+
+                            using var tunneledRequest = new HttpRequestMessage
+                            {
+                                Method = new HttpMethod(request.HttpMethod),
+                                RequestUri = hybridConnectionEndpointUri.MakeRelativeUri(request.Url),
+                                Content = new StreamContent(request.InputStream),
+                            };
+
+                            // TODO: copy headers from hybrid request to tunneled request
+
+                            using var tunneledResponse = await tunnelingHttpClient.SendAsync(tunneledRequest);
+
+                            var response = context.Response;
+
+                            response.StatusCode = tunneledResponse.StatusCode;
+                            response.StatusDescription = tunneledResponse.ReasonPhrase;
+
+                            // TODO: copy headers from tunneled response to hybrid response
+
+                            await tunneledResponse.Content.CopyToAsync(response.OutputStream);
+
+                            await response.CloseAsync();
+                        }
                     }
                 }),
             };
 
-            rootCommand.AddGlobalOption(auzreSubscriptionIdOption);
-            rootCommand.AddGlobalOption(azureResourceGroupNameOption);
-            rootCommand.AddGlobalOption(azureRelayNamespaceOption);
-            rootCommand.AddGlobalOption(confirmOption);
+            rootCommand.AddArgument(
+                new Argument<Uri>
+                {
+                    Name = "tunnel-target-base-url",
+                    Description = "The URL where traffic should be tunneled to.",
+                }
+                .AddSuggestions("http://localhost", "https://localhost", "https://localhost:8080", "https://swapi.dev/api/"));
 
-            return (rootCommand, (auzreSubscriptionIdOption, azureRelayNamespaceOption, azureResourceGroupNameOption), confirmOption);
+            rootCommand.AddGlobalOption(BuildAzureSubscriptionIdOption());
+            rootCommand.AddGlobalOption(BuildAzureResourceGroupNameOption());
+            rootCommand.AddGlobalOption(BuildAzureRelayNamespaceOption());
+
+            return rootCommand;
 
             static Option BuildAzureSubscriptionIdOption()
             {
@@ -122,7 +149,7 @@ namespace Ikspoz.Cli
                 return option;
             }
 
-            static Option BuildRelayNamespaceOption()
+            static Option BuildAzureRelayNamespaceOption()
             {
                 var option = new Option<string>("--azure-relay-namespace")
                 {

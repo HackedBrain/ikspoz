@@ -1,0 +1,88 @@
+root = true
+
+[*]
+indent_style = space
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.sln]
+end_of_line = crlf
+
+[*.cs]
+indent_size = 4
+csharp_prefer_braces = true:error
+csharp_prefer_simple_default_expression = true:warning
+csharp_space_after_colon_in_inheritance_clause = true:warning
+csharp_style_expression_bodied_methods = true:suggestion
+csharp_style_inlined_variable_declaration = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:warning
+csharp_style_pattern_matching_over_is_with_cast_check = true:warning
+csharp_style_var_elsewhere = true:warning
+csharp_style_var_for_built_in_types = true:warning
+csharp_style_var_when_type_is_apparent = true:warning
+dotnet_analyzer_diagnostic.category-Performance.severity = suggestion
+dotnet_analyzer_diagnostic.severity = error
+dotnet_diagnostic.IDE0046.severity = suggestion
+dotnet_diagnostic.IDE0058.severity = suggestion
+dotnet_diagnostic.CA1032.severity = suggestion
+dotnet_diagnostic.CA1822.severity = suggestion
+dotnet_diagnostic.CS1591.severity = suggestion
+dotnet_naming_rule.params_and_local_variables.severity = warning
+dotnet_naming_rule.params_and_local_variables.style = params_and_local_variables_style
+dotnet_naming_rule.params_and_local_variables.symbols = params_and_local_variables
+dotnet_naming_rule.private_fields.severity = warning
+dotnet_naming_rule.private_fields.style = private_fields_style
+dotnet_naming_rule.private_fields.symbols = private_fields
+dotnet_naming_rule.static_or_const_fields.severity = warning
+dotnet_naming_rule.static_or_const_fields.style = static_or_const_fields_style
+dotnet_naming_rule.static_or_const_fields.symbols = static_or_const_fields
+dotnet_naming_style.params_and_local_variables_style.capitalization = camel_case
+dotnet_naming_style.private_fields_style.capitalization = camel_case
+dotnet_naming_style.private_fields_style.required_prefix = _
+dotnet_naming_style.static_or_const_fields_style.capitalization = pascal_case
+dotnet_naming_symbols.params_and_local_variables.applicable_kinds = parameter,local
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.static_or_const_fields.applicable_accessibilities = *
+dotnet_naming_symbols.static_or_const_fields.applicable_kinds = field
+dotnet_naming_symbols.static_or_const_fields.required_modifiers = static
+dotnet_sort_system_directives_first = true
+dotnet_style_coalesce_expression = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_explicit_tuple_names = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_predefined_type_for_locals_parameters_members = true:error
+dotnet_style_prefer_auto_properties = true:suggestion
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:suggestion
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_readonly_field = true:warning
+dotnet_style_require_accessibility_modifiers = always:warning
+
+[*.{xml,config,*proj,nuspec,props,resx,targets,yml,tasks}]
+indent_size = 2
+
+# Xml config files
+[*.{props,targets,ruleset,config,nuspec,resx,vsixmanifest,vsct}]
+indent_size = 2
+
+[*.json]
+indent_size = 2
+
+[*.ya?ml]
+indent_size = 2
+
+[*.{ps1,psm1}]
+indent_size = 4
+
+[*.sh]
+indent_size = 4
+end_of_line = lf
+
+[*.{razor,cshtml}]
+charset = utf-8-bom
+
+[*.{props,targets}]
+indent_size = 4

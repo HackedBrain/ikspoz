@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31008.206
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ikspoz.cli", "ikspoz.cli\ikspoz.cli.csproj", "{3C60F674-BA64-4D0B-B484-35D9B36CE978}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{14DED9D1-6DAF-46F9-A7C9-1CB03D1255B0}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		.gitattributes = .gitattributes
+		.gitignore = .gitignore
+		Directory.Build.props = Directory.Build.props
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3C60F674-BA64-4D0B-B484-35D9B36CE978}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3C60F674-BA64-4D0B-B484-35D9B36CE978}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3C60F674-BA64-4D0B-B484-35D9B36CE978}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3C60F674-BA64-4D0B-B484-35D9B36CE978}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {2C05BC02-C768-41A3-B417-4B00C6976E91}
+	EndGlobalSection
+EndGlobal

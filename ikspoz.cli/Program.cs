@@ -126,7 +126,6 @@ namespace Ikspoz.Cli
                             {
                                 SharedTokenCacheTenantId = tenantId,
                                 InteractiveBrowserTenantId = tenantId,
-                                ExcludeManagedIdentityCredential = true,
                                 ExcludeVisualStudioCredential = true,
                                 ExcludeVisualStudioCodeCredential = true,
                             });
@@ -181,7 +180,7 @@ namespace Ikspoz.Cli
                             {
                                 if (checkNamespaceErrorResponseException.Response.StatusCode != HttpStatusCode.NotFound)
                                 {
-                                    Console.WriteLine($"\t💥 Unexpected status received while checking for namespace: {checkNamespaceErrorResponseException.Response.StatusCode}");
+                                    Console.WriteLine($"\t💥 Unexpected status received while checking for namespace: {checkNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Message}");
 
                                     return;
                                 }
@@ -237,7 +236,7 @@ namespace Ikspoz.Cli
                         }
                         catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createConnectionErrorResponseException)
                         {
-                            Console.WriteLine($"💥 Unexpected status received while creating connection: {createConnectionErrorResponseException.Response.StatusCode}");
+                            Console.WriteLine($"💥 Unexpected status received while creating connection: {createConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{createConnectionErrorResponseException.Body.Code}{Environment.NewLine}{createConnectionErrorResponseException.Body.Message}");
 
                             return;
                         }
@@ -267,7 +266,7 @@ namespace Ikspoz.Cli
                         }
                         catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createAuthorizationRuleErrorResponseException)
                         {
-                            Console.WriteLine($"💥 Unexpected status received while creating authorization rule: {createAuthorizationRuleErrorResponseException.Response.StatusCode}");
+                            Console.WriteLine($"💥 Unexpected status received while creating authorization rule: {createAuthorizationRuleErrorResponseException.Response.StatusCode}{Environment.NewLine}{createAuthorizationRuleErrorResponseException.Body.Code}{Environment.NewLine}{createAuthorizationRuleErrorResponseException.Body.Message}");
 
                             return;
                         }
@@ -360,12 +359,7 @@ namespace Ikspoz.Cli
 
         private static RootCommand BuildRootCommand()
         {
-            var rootCommand = new RootCommand
-            {
-                Handler = CommandHandler.Create(() =>
-                {
-                }),
-            };
+            var rootCommand = new RootCommand();
 
             rootCommand.AddCommand(BuildAzureRelayCommand());
 

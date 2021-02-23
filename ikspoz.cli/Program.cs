@@ -370,7 +370,7 @@ namespace Ikspoz.Cli
         {
             Console.WriteLine($"📡 Connecting...");
 
-            var tunnelingHttpClient = new HttpClient
+            var tunnelingHttpClient = new HttpClient()
             {
                 BaseAddress = tunnelTargetBaseUrl
             };
@@ -410,42 +410,80 @@ namespace Ikspoz.Cli
             async void TunnelIndividualHttpRequest(RelayedHttpListenerContext context)
             {
                 var request = context.Request;
-                var tunnelRelativeRequestUrl = hybridConnectionListener.Address.MakeRelativeUri(request.Url);
-
-                Console.WriteLine($"➡ Request received: {request.HttpMethod} - {tunnelRelativeRequestUrl}");
-
-                using var tunneledRequest = new HttpRequestMessage
-                {
-                    Method = new HttpMethod(request.HttpMethod),
-                    RequestUri = tunnelRelativeRequestUrl,
-                    Content = new StreamContent(request.InputStream),
-                };
-
-                foreach (var requestHeaderKey in request.Headers.AllKeys)
-                {
-                    tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
-                }
-
-                using var tunneledResponse = await tunnelingHttpClient.SendAsync(tunneledRequest, cancellationToken);
-
                 var response = context.Response;
 
-                response.StatusCode = tunneledResponse.StatusCode;
-                response.StatusDescription = tunneledResponse.ReasonPhrase;
-
-                foreach (var tunneledResponseHeader in tunneledResponse.Headers)
+                try
                 {
-                    foreach (var tunneledResponseHeaderValue in tunneledResponseHeader.Value)
+                    var tunnelRelativeRequestUrl = hybridConnectionListener.Address.MakeRelativeUri(request.Url);
+
+                    Console.WriteLine($"→ Request received: {request.HttpMethod} - {tunnelRelativeRequestUrl}");
+
+                    using var tunneledRequest = new HttpRequestMessage
                     {
-                        response.Headers.Add(tunneledResponseHeader.Key, tunneledResponseHeaderValue);
+                        Method = new HttpMethod(request.HttpMethod),
+                        RequestUri = tunnelRelativeRequestUrl,
+                        Content = new StreamContent(request.InputStream),
+                    };
+
+                    foreach (var requestHeaderKey in request.Headers.AllKeys)
+                    {
+                        tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
                     }
+
+                    HttpResponseMessage tunneledResponse;
+
+                    try
+                    {
+                        tunneledResponse = await tunnelingHttpClient.SendAsync(tunneledRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                    }
+                    catch (Exception exception)
+                    {
+                        Console.WriteLine("💥 Error tunneling request:");
+                        Console.WriteLine(exception.ToString());
+
+                        response.StatusCode = HttpStatusCode.InternalServerError;
+                        response.StatusDescription = "ikspoz: Error tunneling request";
+
+                        return;
+                    }
+
+                    using (tunneledResponse)
+                    {
+                        response.StatusCode = tunneledResponse.StatusCode;
+                        response.StatusDescription = tunneledResponse.ReasonPhrase;
+
+                        foreach (var tunneledResponseHeader in tunneledResponse.Headers)
+                        {
+                            foreach (var tunneledResponseHeaderValue in tunneledResponseHeader.Value)
+                            {
+                                response.Headers.Add(tunneledResponseHeader.Key, tunneledResponseHeaderValue);
+                            }
+                        }
+
+                        try
+                        {
+                            await tunneledResponse.Content.CopyToAsync(response.OutputStream, cancellationToken);
+                        }
+                        catch (Exception exception)
+                        {
+                            Console.WriteLine("💥 Error tunneling response:");
+                            Console.WriteLine(exception.ToString());
+
+                            return;
+                        }
+                    }
+
+                    Console.WriteLine($"← Response sent: {response.StatusCode} ({response.Headers["Content-Length"]} bytes)");
                 }
-
-                await tunneledResponse.Content.CopyToAsync(response.OutputStream, cancellationToken);
-
-                await response.CloseAsync();
-
-                Console.WriteLine($"⬅ Response sent: {response.StatusCode} ({response.Headers["Content-Length"]} bytes)");
+                catch (Exception exception)
+                {
+                    Console.WriteLine("💥 Unexpected error tunneling request:");
+                    Console.WriteLine(exception.ToString());
+                }
+                finally
+                {
+                    await response.CloseAsync();
+                }
             }
         }
 

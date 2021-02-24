@@ -2,7 +2,7 @@
   "profiles": {
     "ikspoz.cli": {
       "commandName": "Project",
-      "commandLineArgs": "--relay-namespace Ikspoz --subscription 831700d2-828b-49f1-b5e5-b00b85feee56 --resource-group Ikspoz"
+      "commandLineArgs": "azure-relay auto http://localhost:8080"
     }
   }
 }

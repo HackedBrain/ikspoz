@@ -1,14 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Identity;
+using Ikspoz.Cli.Settings;
 using Microsoft.Azure.Relay;
 
 namespace Ikspoz.Cli
@@ -19,258 +23,483 @@ namespace Ikspoz.Cli
         {
             Console.OutputEncoding = Encoding.UTF8;
 
-            var parser = new CommandLineBuilder(BuildRootCommand())
-                .UseDefaults()
-                .Build();
+            var homeDirectory = Environment.GetEnvironmentVariable("HOME") ?? Environment.GetEnvironmentVariable("USERPROFILE") ?? Environment.CurrentDirectory;
 
-            return await parser.Parse(args).InvokeAsync();
+            return await new CommandLineBuilder(BuildRootCommand())
+                .UseMiddleware((context) =>
+                {
+                    Console.WriteLine($"🎉 Welcome to ikspōz!{Environment.NewLine}");
+                })
+                .UseMiddleware((context) =>
+                {
+                    context.BindingContext.AddService<IUserSettingsManager>(sp => new UserSettingsFileSystemBasedManager(Path.Combine(homeDirectory, ".ikspoz"), new UserSettingsJsonSerializer()));
+                })
+                .UseDefaults()
+                .Build()
+                .InvokeAsync(args);
+        }
+
+        private static Command BuildAzureRelayCommand()
+        {
+            var azureRelayCommand = new Command("azure-relay")
+            {
+                Description = "Connect directly to an Azure Relay instance.",
+            };
+
+            azureRelayCommand.AddCommand(BuildAutoCommand());
+
+            azureRelayCommand.AddArgument(BuildAzureRelayConnectionStringArgument());
+            azureRelayCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
+
+            azureRelayCommand.Handler = CommandHandler.Create(async (string azureRelayConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
+            {
+                await TunnelTrafficAsync(azureRelayConnectionString, tunnelTargetBaseUrl, cancellationToken);
+            });
+
+            return azureRelayCommand;
+
+            static Command BuildAutoCommand()
+            {
+                var autoCommand = new Command("auto");
+
+                autoCommand.AddCommand(BuildInitializeCommand());
+                //autoCommand.AddCommand(BuildCleanupCommand());
+
+                autoCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
+
+                autoCommand.Handler = CommandHandler.Create(async (InvocationContext invocationContext, IUserSettingsManager userSettingsManager, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
+                {
+                    var userSettings = await userSettingsManager.GetUserSettingsAsync();
+
+                    if (userSettings.AzureRelayAutoInstance is null)
+                    {
+                        Console.WriteLine($"❌ Sorry, \"auto\" mode does not appear to have been initialized yet. For more information run:{Environment.NewLine}{Environment.NewLine}\t{Path.GetFileNameWithoutExtension(Assembly.GetEntryAssembly()!.Location)} auto initialize --help");
+
+                        return;
+                    }
+
+                    await TunnelTrafficAsync(userSettings.AzureRelayAutoInstance.ConnectionString, tunnelTargetBaseUrl, cancellationToken);
+
+                    Console.WriteLine($"👋 Bye!");
+                });
+
+                return autoCommand;
+
+                static Command BuildInitializeCommand()
+                {
+                    var initializeCommand = new Command("initialize")
+                    {
+                        Description = "Initializes your Azure Subscription with support for the ikspōz \"auto\" connection feature."
+                    };
+
+                    initializeCommand.AddAlias("init");
+                    initializeCommand.AddAlias("i");
+
+                    initializeCommand.AddOption(BuildAzureTenantIdOption());
+                    initializeCommand.AddOption(BuildAzureSubscriptionIdOption());
+                    initializeCommand.AddOption(BuildAzureResourceGroupNameOption());
+                    initializeCommand.AddOption(BuildAzureRelayNamespaceOption());
+                    initializeCommand.AddOption(BuildAzureRelayNamespaceLocationOption());
+
+                    initializeCommand.Handler = CommandHandler.Create(async (string? tenantId, string subscriptionId, AzureRelayOptions azureRelayOptions, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    {
+                        var userSettings = await userSettingsManager.GetUserSettingsAsync();
+
+                        if (userSettings.AzureRelayAutoInstance is not null)
+                        {
+                            Console.WriteLine("❓ An instance has already been initialized for auto mode, are you sure you want to re-initialize? (y/n)");
+
+                            if (Console.ReadKey(true).Key != ConsoleKey.Y)
+                            {
+                                Console.WriteLine("🏳 Ok, auto initialization canceled.");
+
+                                return;
+                            }
+
+                            Console.WriteLine($"👍 Ok, beginning re-initialization.{Environment.NewLine}");
+                        }
+
+                        Console.WriteLine("🔐 Authenticating with Azure...");
+
+                        var azureCredential = new DefaultAzureCredential(
+                            new DefaultAzureCredentialOptions
+                            {
+                                SharedTokenCacheTenantId = tenantId,
+                                InteractiveBrowserTenantId = tenantId,
+                                ExcludeVisualStudioCredential = true,
+                                ExcludeVisualStudioCodeCredential = true,
+                            });
+
+                        var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
+
+                        Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+
+                        var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
+                        {
+                            SubscriptionId = subscriptionId,
+                        };
+
+                        var isRandomNamespace = false;
+
+                        if (azureRelayOptions.RelayNamespace is null or { Length: 0 })
+                        {
+                            azureRelayOptions = azureRelayOptions with { RelayNamespace = $"ikspoz-auto-{Guid.NewGuid():N}" };
+
+                            isRandomNamespace = true;
+                        }
+
+                        var namespaceAlreadyExists = false;
+
+                        if (!isRandomNamespace)
+                        {
+                            Console.WriteLine($"🔎 Checking if \"{azureRelayOptions.RelayNamespace}\" namespace already exists...");
+
+                            try
+                            {
+                                await relayManagementClient.Namespaces.GetWithHttpMessagesAsync(
+                                    azureRelayOptions.ResourceGroup,
+                                    azureRelayOptions.RelayNamespace,
+                                    cancellationToken: cancellationToken);
+
+                                Console.WriteLine("✔ Namespace already exists...");
+
+                                namespaceAlreadyExists = true;
+                            }
+                            catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException checkNamespaceErrorResponseException) when (checkNamespaceErrorResponseException.Response.StatusCode == HttpStatusCode.NotFound)
+                            {
+                                Console.WriteLine("❔ Namespace does not exist, create now? (y/n)");
+
+                                if (Console.ReadKey(true).Key != ConsoleKey.Y)
+                                {
+                                    Console.WriteLine("🏳 Ok, auto initialization canceled.");
+
+                                    return;
+                                }
+                            }
+                            catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException checkNamespaceErrorResponseException)
+                            {
+                                if (checkNamespaceErrorResponseException.Response.StatusCode != HttpStatusCode.NotFound)
+                                {
+                                    Console.WriteLine($"\t💥 Unexpected status received while checking for namespace: {checkNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Message}");
+
+                                    return;
+                                }
+                            }
+                        }
+
+                        if (!namespaceAlreadyExists)
+                        {
+                            Console.WriteLine("🛠 Creating namespace...");
+
+                            try
+                            {
+                                await relayManagementClient.Namespaces.CreateOrUpdateWithHttpMessagesAsync(
+                                    azureRelayOptions.ResourceGroup,
+                                    azureRelayOptions.RelayNamespace,
+                                    new Microsoft.Azure.Management.Relay.Models.RelayNamespace
+                                    {
+                                        Location = azureRelayOptions.RelayNamespaceLocation
+                                    },
+                                    cancellationToken: cancellationToken);
+
+                                Console.WriteLine("👍 Namespace created!");
+                            }
+                            catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createNamespaceErrorResponseException)
+                            {
+                                Console.WriteLine($"💥 Unexpected status received while attempting to create namespace: {createNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{createNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{createNamespaceErrorResponseException.Body.Message}");
+
+                                return;
+                            }
+                        }
+
+                        Console.WriteLine("🛠 Creating hybrid connection...");
+
+                        if (azureRelayOptions.RelayConnectionName is null or { Length: 0 })
+                        {
+                            azureRelayOptions = azureRelayOptions with { RelayConnectionName = $"ikspoz-auto-connection-{Guid.NewGuid():N}" };
+                        }
+
+                        try
+                        {
+                            await relayManagementClient.HybridConnections.CreateOrUpdateWithHttpMessagesAsync(
+                                azureRelayOptions.ResourceGroup,
+                                azureRelayOptions.RelayNamespace,
+                                azureRelayOptions.RelayConnectionName,
+                                new Microsoft.Azure.Management.Relay.Models.HybridConnection
+                                {
+                                    RequiresClientAuthorization = false,
+                                    UserMetadata = ".ikspoz-auto-generated-connection"
+                                },
+                                cancellationToken: cancellationToken);
+
+                            Console.WriteLine("👍 Auto mode hybrid connection created!");
+                        }
+                        catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createConnectionErrorResponseException)
+                        {
+                            Console.WriteLine($"💥 Unexpected status received while creating connection: {createConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{createConnectionErrorResponseException.Body.Code}{Environment.NewLine}{createConnectionErrorResponseException.Body.Message}");
+
+                            return;
+                        }
+
+                        var randomAuthorizationRuleName = $".ikspoz-{Guid.NewGuid():N}";
+
+                        Console.WriteLine("🛠 Creating authorization rule to listen to hybrid connection...");
+
+                        var authorizationRuleConnectionString = string.Empty;
+
+                        try
+                        {
+                            await relayManagementClient.HybridConnections.CreateOrUpdateAuthorizationRuleWithHttpMessagesAsync(
+                                azureRelayOptions.ResourceGroup,
+                                azureRelayOptions.RelayNamespace,
+                                azureRelayOptions.RelayConnectionName,
+                                randomAuthorizationRuleName,
+                                new Microsoft.Azure.Management.Relay.Models.AuthorizationRule
+                                {
+                                    Rights = new List<Microsoft.Azure.Management.Relay.Models.AccessRights?> { Microsoft.Azure.Management.Relay.Models.AccessRights.Listen }
+                                },
+                                cancellationToken: cancellationToken);
+
+                            var listAccessKeysResponse = await relayManagementClient.HybridConnections.ListKeysWithHttpMessagesAsync(azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName, randomAuthorizationRuleName, cancellationToken: cancellationToken);
+
+                            authorizationRuleConnectionString = listAccessKeysResponse.Body.PrimaryConnectionString;
+                        }
+                        catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createAuthorizationRuleErrorResponseException)
+                        {
+                            Console.WriteLine($"💥 Unexpected status received while creating authorization rule: {createAuthorizationRuleErrorResponseException.Response.StatusCode}{Environment.NewLine}{createAuthorizationRuleErrorResponseException.Body.Code}{Environment.NewLine}{createAuthorizationRuleErrorResponseException.Body.Message}");
+
+                            return;
+                        }
+
+                        Console.WriteLine("👍 Auto mode hybrid connection authorization rule created!");
+
+                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString) };
+
+                        await userSettingsManager.SaveUserSettingsAsync(userSettings);
+                    });
+
+                    return initializeCommand;
+
+                    static Option BuildAzureTenantIdOption()
+                    {
+                        var option = new Option<string>("--tenant-id")
+                        {
+                            Description = "The ID of the Azure Tenant that should be authenticated against.",
+                        };
+
+                        option.AddAlias("--tenant");
+                        option.AddAlias("--tid");
+                        option.AddAlias("-t");
+
+                        return option;
+                    }
+
+                    static Option BuildAzureSubscriptionIdOption()
+                    {
+                        var option = new Option<string>("--subscription-id")
+                        {
+                            Description = "The ID of the Azure Subscription of the Azure Relay Instance that should be used.",
+                            IsRequired = true
+                        };
+
+                        option.AddAlias("--subscription");
+                        option.AddAlias("--sub");
+                        option.AddAlias("-s");
+
+                        return option;
+                    }
+
+                    static Option BuildAzureRelayNamespaceOption()
+                    {
+                        var option = new Option<string>("--relay-namespace")
+                        {
+                            Description = "The Azure Relay namespace to create. If left unspecified, ikspōz will generate a unique namespace for you. (NOTE: This value must be globally unique to all of Azure.)",
+                        };
+
+                        option.AddAlias("--namespace");
+                        option.AddAlias("--ns");
+                        option.AddAlias("-n");
+
+                        return option;
+                    }
+
+                    static Option BuildAzureRelayNamespaceLocationOption()
+                    {
+                        var option = new Option<string>("--relay-namespace-location")
+                        {
+                            Description = "The Azure locatation where you want the namespace to be created. For a full list of locations you can use: az account list-locations. Refer to https://azure.microsoft.com/en-us/global-infrastructure/geographies/#geographies for more information.",
+                            IsRequired = true,
+                        };
+
+                        option.AddAlias("--namespace-location");
+                        option.AddAlias("--location");
+                        option.AddAlias("-l");
+                        option.AddSuggestions("eastus", "westus2", "brazilsoutheast", "japanwest");
+
+                        return option;
+                    }
+
+                    static Option BuildAzureResourceGroupNameOption()
+                    {
+                        var option = new Option<string>("--resource-group")
+                        {
+                            Description = "The Azure Resource Group name of the Azure Relay Instance that should be used.",
+                            IsRequired = true,
+                        };
+
+                        option.AddAlias("--group");
+                        option.AddAlias("--rg");
+                        option.AddAlias("-g");
+
+                        return option;
+                    }
+                }
+            }
         }
 
         private static RootCommand BuildRootCommand()
         {
-            var rootCommand = new RootCommand
-            {
-                Handler = CommandHandler.Create(async (string azureSubscriptionId, string azureResourceGroupName, string azureRelayNamespace, string? azureRelayConnectionName, Uri tunnelTargetBaseUrl) =>
-                {
-                    Console.WriteLine($"💥 Welcome to ikspoz!{Environment.NewLine}{Environment.NewLine}");
+            var rootCommand = new RootCommand();
 
-                    Console.WriteLine("🔐 Authenticating with Azure...");
-
-                    var azureCredential = new DefaultAzureCredential(includeInteractiveCredentials: true);
-
-                    var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }));
-
-                    Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
-
-                    var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
-                    {
-                        SubscriptionId = azureSubscriptionId,
-                    };
-
-                    azureRelayConnectionName ??= Guid.NewGuid().ToString("N");
-
-                    var hybridConnectionDetails = await EnsureAzureRelayConnectionExists();
-
-                    if (hybridConnectionDetails is not null)
-                    {
-                        await ListenToConnection(hybridConnectionDetails);
-                    }
-
-                    async Task ListenToConnection(Microsoft.Azure.Management.Relay.Models.HybridConnection hybridConnectionDetails)
-                    {
-                        Console.WriteLine($"📡 Connecting...");
-
-                        var tokenProvider = TokenProvider.CreateSharedAccessSignatureTokenProvider("manualPolicy", "");
-                        var hybridConnectionEndpointUri = new Uri($"sb://{azureRelayNamespace}.servicebus.windows.net/{azureRelayConnectionName}/");
-
-                        var tunnelingHttpClient = new HttpClient
-                        {
-                            BaseAddress = tunnelTargetBaseUrl
-                        };
-
-                        var hybridConnectionListener = new HybridConnectionListener(hybridConnectionEndpointUri, tokenProvider)
-                        {
-                            RequestHandler = TunnelRequest
-                        };
-
-                        await hybridConnectionListener.OpenAsync();
-
-                        Console.WriteLine($"💫 Connected!{Environment.NewLine}{Environment.NewLine}");
-
-                        var hybridConnectionEndpointPublicUrl = new UriBuilder(hybridConnectionEndpointUri) { Scheme = "https" }.Uri;
-
-                        Console.WriteLine($"📥 You can begin sending requests to the following public endpoint:{Environment.NewLine}\t{hybridConnectionEndpointPublicUrl}{Environment.NewLine}{Environment.NewLine}");
-
-                        var shutdownCompletedEvent = new ManualResetEvent(false);
-
-                        Console.CancelKeyPress += async (_, a) =>
-                        {
-                            a.Cancel = true;
-
-                            Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}🔌 Shutting down...");
-
-                            try
-                            {
-                                await hybridConnectionListener.CloseAsync();
-                            }
-                            finally
-                            {
-                                shutdownCompletedEvent.Set();
-                            }
-                        };
-
-                        shutdownCompletedEvent.WaitOne();
-
-                        Console.WriteLine($"👋 Bye!");
-
-                        async void TunnelRequest(RelayedHttpListenerContext context)
-                        {
-                            var request = context.Request;
-
-                            Console.WriteLine($"➡ Request received: {request.HttpMethod} - {request.Url.PathAndQuery}");
-
-                            using var tunneledRequest = new HttpRequestMessage
-                            {
-                                Method = new HttpMethod(request.HttpMethod),
-                                RequestUri = hybridConnectionEndpointUri.MakeRelativeUri(request.Url),
-                                Content = new StreamContent(request.InputStream),
-                            };
-
-                            foreach (var requestHeaderKey in request.Headers.AllKeys)
-                            {
-                                tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
-                            }
-
-                            using var tunneledResponse = await tunnelingHttpClient.SendAsync(tunneledRequest);
-
-                            var response = context.Response;
-
-                            response.StatusCode = tunneledResponse.StatusCode;
-                            response.StatusDescription = tunneledResponse.ReasonPhrase;
-
-                            foreach (var tunneledResponseHeader in tunneledResponse.Headers)
-                            {
-                                foreach (var tunneledResponseHeaderValue in tunneledResponseHeader.Value)
-                                {
-                                    response.Headers.Add(tunneledResponseHeader.Key, tunneledResponseHeaderValue);
-                                }
-                            }
-
-                            await tunneledResponse.Content.CopyToAsync(response.OutputStream);
-
-                            await response.CloseAsync();
-
-                            Console.WriteLine($"⬅ Response sent: {response.StatusCode} ({response.Headers["Content-Length"]} bytes)");
-                        }
-                    }
-
-                    async Task<Microsoft.Azure.Management.Relay.Models.HybridConnection?> EnsureAzureRelayConnectionExists()
-                    {
-                        Console.WriteLine($"🔃 Preparing connection \"{azureRelayConnectionName}\"...");
-
-                        try
-                        {
-                            var existingHybridConnectionResponse = await relayManagementClient.HybridConnections.GetWithHttpMessagesAsync(azureResourceGroupName, azureRelayNamespace, azureRelayConnectionName);
-
-                            if (existingHybridConnectionResponse is not null)
-                            {
-                                Console.WriteLine("🌟 Connection already exists!");
-
-                                return existingHybridConnectionResponse.Body;
-                            }
-                        }
-                        catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException exception) when (exception.Response.StatusCode == HttpStatusCode.NotFound)
-                        {
-                            // Eat it
-                        }
-
-                        Console.WriteLine("🛠 Connection does not exist, creating...");
-
-                        try
-                        {
-                            var createHybridConnectionResponse = await relayManagementClient.HybridConnections.CreateOrUpdateWithHttpMessagesAsync(azureResourceGroupName, azureRelayNamespace, azureRelayConnectionName, new Microsoft.Azure.Management.Relay.Models.HybridConnection { RequiresClientAuthorization = false });
-
-                            var hybridConnectionDetails = createHybridConnectionResponse.Body;
-
-                            return hybridConnectionDetails;
-                        }
-                        catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException exception)
-                        {
-                            Console.WriteLine($"💣 Failed to create connection: {exception.Response.ReasonPhrase}");
-                            Console.WriteLine(exception.Response.Content);
-                        }
-
-                        return default;
-                    }
-                }),
-            };
-
-            rootCommand.AddArgument(
-                new Argument<Uri>
-                {
-                    Name = "tunnel-target-base-url",
-                    Description = "The URL where traffic should be tunneled to.",
-                }
-                .AddSuggestions("http://localhost", "https://localhost", "https://localhost:8181", "https://swapi.dev/api/"));
-
-            rootCommand.AddOption(BuildAzureSubscriptionIdOption());
-            rootCommand.AddOption(BuildAzureResourceGroupNameOption());
-            rootCommand.AddOption(BuildAzureRelayNamespaceOption());
-            rootCommand.AddOption(BuildAzureRelayConnectionNameOption());
+            rootCommand.AddCommand(BuildAzureRelayCommand());
 
             return rootCommand;
+        }
 
-            static Option BuildAzureSubscriptionIdOption()
+        private static async Task TunnelTrafficAsync(string hybridConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken)
+        {
+            Console.WriteLine($"📡 Connecting...");
+
+            var tunnelingHttpClient = new HttpClient()
             {
-                var option = new Option<string>("--azure-subscription-id")
-                {
-                    Description = "The ID of the Azure Subscription of the Azure Relay Instance that should be used.",
-                    IsRequired = true,
-                };
+                BaseAddress = tunnelTargetBaseUrl
+            };
 
-                option.AddAlias("--subscription-id");
-                option.AddAlias("--subscription");
-                option.AddAlias("--sub");
+            var hybridConnectionListener = new HybridConnectionListener(hybridConnectionString);
+            var hybridConnectionEndpointPublicUrl = new UriBuilder(hybridConnectionListener.Address) { Scheme = "https" }.Uri;
 
-                return option;
-            }
+            hybridConnectionListener.RequestHandler = TunnelIndividualHttpRequest;
 
-            static Option BuildAzureRelayNamespaceOption()
+            await hybridConnectionListener.OpenAsync(cancellationToken);
+
+            Console.WriteLine($"💫 Connected!{Environment.NewLine}");
+
+
+            Console.WriteLine($"📥 You can begin sending requests to the following public endpoint:{Environment.NewLine}\t{hybridConnectionEndpointPublicUrl}{Environment.NewLine}");
+
+            var shutdownCompletedEvent = new ManualResetEvent(false);
+
+            Console.CancelKeyPress += async (_, a) =>
             {
-                var option = new Option<string>("--azure-relay-namespace")
+                a.Cancel = true;
+
+                Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}🔌 Shutting down...");
+
+                try
                 {
-                    Description = "The Azure Relay namespace to utilize when creating a connection.",
-                    IsRequired = true,
-                };
+                    await hybridConnectionListener.CloseAsync();
+                }
+                finally
+                {
+                    shutdownCompletedEvent.Set();
+                }
+            };
 
-                option.AddAlias("--relay-namespace");
-                option.AddAlias("--relay-ns");
-                option.AddAlias("--rns");
+            shutdownCompletedEvent.WaitOne();
 
-                return option;
-            }
-
-            static Option BuildAzureRelayConnectionNameOption()
+            async void TunnelIndividualHttpRequest(RelayedHttpListenerContext context)
             {
-                var option = new Option<string>("--azure-relay-connection-name")
+                var request = context.Request;
+                var response = context.Response;
+
+                try
                 {
-                    Description = "The Azure Relay Connection name to utilize when creating a connection.",
-                    IsRequired = false,
-                };
+                    var tunnelRelativeRequestUrl = hybridConnectionListener.Address.MakeRelativeUri(request.Url);
 
-                option.AddAlias("--relay-connection-name");
-                option.AddAlias("--connection-name");
-                option.AddAlias("--rcn");
+                    Console.WriteLine($"→ Request received: {request.HttpMethod} - {tunnelRelativeRequestUrl}");
 
-                option.AddValidator(optionResult =>
-                {
-                    var value = optionResult.GetValueOrDefault<string>();
-
-                    if (value is { Length: > 260 })
+                    using var tunneledRequest = new HttpRequestMessage
                     {
-                        optionResult.ErrorMessage = "Azure Relay Connection names cannot be greater than 260 characters in length.";
+                        Method = new HttpMethod(request.HttpMethod),
+                        RequestUri = tunnelRelativeRequestUrl,
+                        Content = new StreamContent(request.InputStream),
+                    };
+
+                    foreach (var requestHeaderKey in request.Headers.AllKeys)
+                    {
+                        tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
                     }
 
-                    return value;
-                });
+                    HttpResponseMessage tunneledResponse;
 
-                return option;
-            }
+                    try
+                    {
+                        tunneledResponse = await tunnelingHttpClient.SendAsync(tunneledRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                    }
+                    catch (Exception exception)
+                    {
+                        Console.WriteLine("💥 Error tunneling request:");
+                        Console.WriteLine(exception.ToString());
 
-            static Option BuildAzureResourceGroupNameOption()
-            {
-                var option = new Option<string>("--azure-resource-group-name")
+                        response.StatusCode = HttpStatusCode.InternalServerError;
+                        response.StatusDescription = "ikspoz: Error tunneling request";
+
+                        return;
+                    }
+
+                    using (tunneledResponse)
+                    {
+                        response.StatusCode = tunneledResponse.StatusCode;
+                        response.StatusDescription = tunneledResponse.ReasonPhrase;
+
+                        foreach (var tunneledResponseHeader in tunneledResponse.Headers)
+                        {
+                            foreach (var tunneledResponseHeaderValue in tunneledResponseHeader.Value)
+                            {
+                                response.Headers.Add(tunneledResponseHeader.Key, tunneledResponseHeaderValue);
+                            }
+                        }
+
+                        try
+                        {
+                            await tunneledResponse.Content.CopyToAsync(response.OutputStream, cancellationToken);
+                        }
+                        catch (Exception exception)
+                        {
+                            Console.WriteLine("💥 Error tunneling response:");
+                            Console.WriteLine(exception.ToString());
+
+                            return;
+                        }
+                    }
+
+                    Console.WriteLine($"← Response sent: {response.StatusCode} ({response.Headers["Content-Length"]} bytes)");
+                }
+                catch (Exception exception)
                 {
-                    Description = "The Azure Resource Group name of the Azure Relay Instance that should be used.",
-                    IsRequired = true,
-                };
-
-                option.AddAlias("--resource-group-name");
-                option.AddAlias("--resource-group");
-                option.AddAlias("--rg");
-
-                return option;
+                    Console.WriteLine("💥 Unexpected error tunneling request:");
+                    Console.WriteLine(exception.ToString());
+                }
+                finally
+                {
+                    await response.CloseAsync();
+                }
             }
         }
+
+        private static Argument BuildTunnelTargetBaseUrlArgument() =>
+            new Argument<Uri>
+            {
+                Name = "tunnel-target-base-url",
+                Description = "The base URL where traffic should be tunneled to.",
+            }
+            .AddSuggestions("http://localhost", "https://localhost", "https://localhost:8181", "https://swapi.dev/api/");
+
+        private static Argument<string> BuildAzureRelayConnectionStringArgument() =>
+            new Argument<string>
+            {
+                Name = "relay-connection-string",
+                Description = "A connection string for an Azure Relay namespace or specific Hybrid Connection.",
+            }.AddSuggestions("Endpoint=sb://<namespace-name>.servicebus.windows.net/;SharedAccessKeyName=<key-name>;SharedAccessKey=<base64-encoded-key>;Entity=<hybrid-connection-name>");
     }
 }

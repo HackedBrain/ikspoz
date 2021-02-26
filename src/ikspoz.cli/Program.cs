@@ -43,7 +43,7 @@ namespace Ikspoz.Cli
         {
             var azureRelayCommand = new Command("azure-relay")
             {
-                Description = "Connect directly to an Azure Relay instance.",
+                Description = "Connect directly to an existing Azure Relay instance.",
             };
 
             azureRelayCommand.AddCommand(BuildAutoCommand());
@@ -51,9 +51,9 @@ namespace Ikspoz.Cli
             azureRelayCommand.AddArgument(BuildAzureRelayConnectionStringArgument());
             azureRelayCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
 
-            azureRelayCommand.Handler = CommandHandler.Create(async (string azureRelayConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
+            azureRelayCommand.Handler = CommandHandler.Create(async (string relayConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
             {
-                await TunnelTrafficAsync(azureRelayConnectionString, tunnelTargetBaseUrl, cancellationToken);
+                await TunnelTrafficAsync(relayConnectionString, tunnelTargetBaseUrl, cancellationToken);
             });
 
             return azureRelayCommand;
@@ -180,7 +180,7 @@ namespace Ikspoz.Cli
                             {
                                 if (checkNamespaceErrorResponseException.Response.StatusCode != HttpStatusCode.NotFound)
                                 {
-                                    Console.WriteLine($"\t💥 Unexpected status received while checking for namespace: {checkNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Message}");
+                                    Console.WriteLine($"💥 Unexpected status received while checking for namespace: {checkNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Message}");
 
                                     return;
                                 }
@@ -380,7 +380,24 @@ namespace Ikspoz.Cli
 
             hybridConnectionListener.RequestHandler = TunnelIndividualHttpRequest;
 
-            await hybridConnectionListener.OpenAsync(cancellationToken);
+            try
+            {
+                await hybridConnectionListener.OpenAsync(cancellationToken);
+            }
+            catch (EndpointNotFoundException)
+            {
+                Console.WriteLine($"💥 The specified Azure Relay Hybrid Connection was not found. Please check the specified connection string to make sure it contains the expected Hybrid Connection name for the Entity value.");
+
+                return;
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"💥 An unexpected error occurred while connecting to the specified Azure Relay Hybrid Connection:{Environment.NewLine}{Environment.NewLine}{exception.Message}");
+
+                // TODO: log full exception details
+
+                return;
+            }
 
             Console.WriteLine($"💫 Connected!{Environment.NewLine}");
 
@@ -398,6 +415,10 @@ namespace Ikspoz.Cli
                 try
                 {
                     await hybridConnectionListener.CloseAsync();
+                }
+                catch (Exception)
+                {
+                    // TODO: eat and log full exception details
                 }
                 finally
                 {
@@ -499,7 +520,7 @@ namespace Ikspoz.Cli
             new Argument<string>
             {
                 Name = "relay-connection-string",
-                Description = "A connection string for an Azure Relay namespace or specific Hybrid Connection.",
-            }.AddSuggestions("Endpoint=sb://<namespace-name>.servicebus.windows.net/;SharedAccessKeyName=<key-name>;SharedAccessKey=<base64-encoded-key>;Entity=<hybrid-connection-name>");
+                Description = "A connection string for an existing Azure Relay Hybrid Connection.",
+            }.AddSuggestions("Endpoint=sb://<namespace-name>.servicebus.windows.net/;Entity=<hybrid-connection-name>;SharedAccessKeyName=<key-name>;SharedAccessKey=<base64-encoded-key>");
     }
 }

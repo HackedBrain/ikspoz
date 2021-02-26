@@ -63,7 +63,7 @@ namespace Ikspoz.Cli
                 var autoCommand = new Command("auto");
 
                 autoCommand.AddCommand(BuildInitializeCommand());
-                //autoCommand.AddCommand(BuildCleanupCommand());
+                autoCommand.AddCommand(BuildCleanupCommand());
 
                 autoCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
 
@@ -149,6 +149,7 @@ namespace Ikspoz.Cli
                         }
 
                         var namespaceAlreadyExists = false;
+                        var namespaceWasAutoCreated = false;
 
                         if (!isRandomNamespace)
                         {
@@ -203,6 +204,8 @@ namespace Ikspoz.Cli
                                     cancellationToken: cancellationToken);
 
                                 Console.WriteLine("👍 Namespace created!");
+
+                                namespaceWasAutoCreated = true;
                             }
                             catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createNamespaceErrorResponseException)
                             {
@@ -273,7 +276,7 @@ namespace Ikspoz.Cli
 
                         Console.WriteLine("👍 Auto mode hybrid connection authorization rule created!");
 
-                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString) };
+                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString, namespaceWasAutoCreated) };
 
                         await userSettingsManager.SaveUserSettingsAsync(userSettings);
                     });
@@ -353,6 +356,101 @@ namespace Ikspoz.Cli
 
                         return option;
                     }
+                }
+
+                static Command BuildCleanupCommand() {
+                    var cleanupCommand = new Command("cleanup")
+                    {
+                        Description = "Cleans up auto-created Azure resources."
+                    };
+
+                    cleanupCommand.AddAlias("clean");
+                    cleanupCommand.AddAlias("c");
+                    cleanupCommand.Handler = CommandHandler.Create(async (string? tenantId, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    {
+                        var userSettings = await userSettingsManager.GetUserSettingsAsync();
+
+                        if (userSettings.AzureRelayAutoInstance is null)
+                        {
+                            Console.WriteLine("No instance has been initialized for auto mode. Try running ikspoz azure-relay auto initialize --help");
+
+                        } else {
+                            Console.WriteLine("Are you sure you want to delete your Azure Relay instance?");
+
+                            if (Console.ReadKey(true).Key != ConsoleKey.Y)
+                            {
+                                Console.WriteLine("👍 Ok, we'll keep your resources in Azure.");
+
+                                return;
+                            }
+                            Console.WriteLine("👍 Ok, beginning resource cleanup.");
+
+
+                            Console.WriteLine("🔐 Authenticating with Azure...");
+
+                            var azureCredential = new DefaultAzureCredential(
+                                new DefaultAzureCredentialOptions
+                                {
+                                    SharedTokenCacheTenantId = tenantId,
+                                    InteractiveBrowserTenantId = tenantId,
+                                    ExcludeVisualStudioCredential = true,
+                                    ExcludeVisualStudioCodeCredential = true,
+                                });
+
+                            var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
+
+                            Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+
+                            var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
+                            {
+                                SubscriptionId = userSettings.AzureRelayAutoInstance.SubscriptionId,
+                            };
+
+                            if (userSettings.AzureRelayAutoInstance.NamespaceWasAutoCreated)
+                            {
+                                try
+                                {
+                                    await relayManagementClient.Namespaces.DeleteWithHttpMessagesAsync(
+                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
+                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
+                                        (new Dictionary<string, List<string>>()),
+                                        cancellationToken: cancellationToken);
+
+                                    Console.WriteLine("👍 Namespace deleted!");
+
+                                }
+                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteNamespaceErrorResponseException)
+                                {
+                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete namespace: {deleteNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{deleteNamespaceErrorResponseException.Body.Message}");
+
+                                    return;
+                                }
+                            } else {
+                                try
+                                {
+                                    await relayManagementClient.Namespaces.DeleteAuthorizationRuleWithHttpMessagesAsync(
+                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
+                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
+                                        userSettings.AzureRelayAutoInstance.ConnectionName,
+                                        (new Dictionary<string, List<string>>()),
+                                        cancellationToken: cancellationToken);
+
+                                    Console.WriteLine("👍 Authorization rule deleted!");
+
+                                }
+                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteAuthorizationRuleErrorResponseException)
+                                {
+                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete rule: {deleteAuthorizationRuleErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteAuthorizationRuleErrorResponseException.Body.Code}{Environment.NewLine}{deleteAuthorizationRuleErrorResponseException.Body.Message}");
+
+                                    return;
+                                }
+                            }
+                            userSettings = userSettings with { AzureRelayAutoInstance = null };
+                            await userSettingsManager.SaveUserSettingsAsync(userSettings);
+                        }
+                    });
+
+                    return cleanupCommand;
                 }
             }
         }

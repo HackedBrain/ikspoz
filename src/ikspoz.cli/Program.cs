@@ -358,7 +358,8 @@ namespace Ikspoz.Cli
                     }
                 }
 
-                static Command BuildCleanupCommand() {
+                static Command BuildCleanupCommand()
+                {
                     var cleanupCommand = new Command("cleanup")
                     {
                         Description = "Cleans up auto-created Azure resources."
@@ -373,10 +374,10 @@ namespace Ikspoz.Cli
                         if (userSettings.AzureRelayAutoInstance is null)
                         {
                             Console.WriteLine("No instance has been initialized for auto mode. Try running ikspoz azure-relay auto initialize --help");
-
-                        } else {
+                        }
+                        else
+                        {
                             Console.WriteLine("Are you sure you want to delete your Azure Relay instance?");
-
                             if (Console.ReadKey(true).Key != ConsoleKey.Y)
                             {
                                 Console.WriteLine("👍 Ok, we'll keep your resources in Azure.");
@@ -425,7 +426,9 @@ namespace Ikspoz.Cli
 
                                     return;
                                 }
-                            } else {
+                            }
+                            else
+                            {
                                 try
                                 {
                                     await relayManagementClient.Namespaces.DeleteAuthorizationRuleWithHttpMessagesAsync(

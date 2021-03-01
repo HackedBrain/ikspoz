@@ -119,20 +119,7 @@ namespace Ikspoz.Cli
                             Console.WriteLine($"👍 Ok, beginning re-initialization.{Environment.NewLine}");
                         }
 
-                        Console.WriteLine("🔐 Authenticating with Azure...");
-
-                        var azureCredential = new DefaultAzureCredential(
-                            new DefaultAzureCredentialOptions
-                            {
-                                SharedTokenCacheTenantId = tenantId,
-                                InteractiveBrowserTenantId = tenantId,
-                                ExcludeVisualStudioCredential = true,
-                                ExcludeVisualStudioCodeCredential = true,
-                            });
-
-                        var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
-
-                        Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+                        var token = GetAzureAccessToken(tenantId, cancellationToken);
 
                         var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
                         {
@@ -386,21 +373,7 @@ namespace Ikspoz.Cli
                             }
                             Console.WriteLine("👍 Ok, beginning resource cleanup.");
 
-
-                            Console.WriteLine("🔐 Authenticating with Azure...");
-
-                            var azureCredential = new DefaultAzureCredential(
-                                new DefaultAzureCredentialOptions
-                                {
-                                    SharedTokenCacheTenantId = tenantId,
-                                    InteractiveBrowserTenantId = tenantId,
-                                    ExcludeVisualStudioCredential = true,
-                                    ExcludeVisualStudioCodeCredential = true,
-                                });
-
-                            var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
-
-                            Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+                            var token = GetAzureAccessToken(tenantId, cancellationToken);
 
                             var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
                             {
@@ -586,6 +559,26 @@ namespace Ikspoz.Cli
                     await response.CloseAsync();
                 }
             }
+        }
+
+        private static Azure.Core.AccessToken GetAzureAccessToken(String? tenantId, CancellationToken cancellationToken)
+        {
+            Console.WriteLine("🔐 Authenticating with Azure...");
+
+            var azureCredential = new DefaultAzureCredential(
+                new DefaultAzureCredentialOptions
+                {
+                    SharedTokenCacheTenantId = tenantId,
+                    InteractiveBrowserTenantId = tenantId,
+                    ExcludeVisualStudioCredential = true,
+                    ExcludeVisualStudioCodeCredential = true,
+                });
+
+            var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
+
+            Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+            return token;
+
         }
 
         private static Argument BuildTunnelTargetBaseUrlArgument() =>

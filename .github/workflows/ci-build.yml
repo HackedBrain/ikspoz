@@ -3,16 +3,19 @@ name: .NET
 on:
   push:
     branches: [ main ]
+    paths: [ 'src/**', '.github/workflows/**']
   pull_request:
     branches: [ '**' ]
+    paths: [ 'src/**', '.github/workflows/**' ]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
+    env:
+      BUILD_CONFIGURATION: Release
     steps:
-    - uses: actions/checkout@v2
+    - name: Checkout branch
+      uses: actions/checkout@v2
     - name: Setup .NET
       uses: actions/setup-dotnet@v1
       with:
@@ -20,6 +23,13 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
-      run: dotnet build --no-restore
+      run: dotnet build --no-restore --configuration $BUILD_CONFIGURATION
     - name: Test
-      run: dotnet test --no-build --verbosity normal
+      run: dotnet test --no-build --configuration $BUILD_CONFIGURATION --verbosity normal
+    - name: Pack
+      run: dotnet pack --no-build --configuration $BUILD_CONFIGURATION
+    - name: Upload NuGet Package Artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: nuget-packages
+        path: src/**/*.nupkg

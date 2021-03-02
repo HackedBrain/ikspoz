@@ -16,18 +16,32 @@ jobs:
     steps:
     - name: Checkout branch
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
     - name: Setup .NET
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: 5.0.x
+    - name: Restore tools
+      run: dotnet tool restore
     - name: Restore dependencies
       run: dotnet restore
+    - name: Calculate GitVersion
+      id: gitversion
+      run: |
+        gitversion_json=$(dotnet tool run dotnet-gitversion)
+        echo "$gitversion_json" | jq -r 'to_entries|map("::set-output name=\(.key)::\(.value|tostring)")|.[]'
     - name: Build
-      run: dotnet build --no-restore --configuration $BUILD_CONFIGURATION
+      run: >
+        dotnet build --no-restore --configuration $BUILD_CONFIGURATION
+        -p:AssemblyVersion=${{ steps.gitversion.outputs.MajorMinorPatch }}
+        -p:InformationalVersion=${{ steps.gitversion.outputs.SemVer }}
     - name: Test
       run: dotnet test --no-build --configuration $BUILD_CONFIGURATION --verbosity normal
     - name: Pack
-      run: dotnet pack --no-build --configuration $BUILD_CONFIGURATION
+      run: >
+        dotnet pack --no-build --configuration $BUILD_CONFIGURATION
+        -p:PackageVersion=${{ steps.gitversion.outputs.NuGetVersionV2 }}
     - name: Upload NuGet Package Artifacts
       uses: actions/upload-artifact@v2
       with:

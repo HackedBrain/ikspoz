@@ -7,7 +7,7 @@ namespace Ikspoz.Cli.Settings
         }
     }
 
-    internal record UserSettingsConfiguredAzureRelayAutoInstance(string? TenantId, string SubscriptionId, string ResourceGroup, string RelayNamespace, string ConnectionName, string AuthorizationRuleName, string ConnectionString, bool NamespaceWasAutoCreated)
+    internal record UserSettingsConfiguredAzureRelayAutoInstance(string? TenantId, string SubscriptionId, string ResourceGroup, string RelayNamespace, string ConnectionName, string ConnectionString, bool NamespaceWasAutoCreated)
     {
     }
 }

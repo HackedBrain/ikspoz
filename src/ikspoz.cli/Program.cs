@@ -202,7 +202,7 @@ namespace Ikspoz.Cli
                             }
                         }
 
-                        Console.WriteLine("🛠 Creating hybrid connection...");
+                        Console.WriteLine("🛠 Creating Hybrid Connection...");
 
                         if (azureRelayOptions.RelayConnectionName is null or { Length: 0 })
                         {
@@ -222,7 +222,7 @@ namespace Ikspoz.Cli
                                 },
                                 cancellationToken: cancellationToken);
 
-                            Console.WriteLine("👍 Auto mode hybrid connection created!");
+                            Console.WriteLine("👍 Auto mode Hybrid Connection created!");
                         }
                         catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createConnectionErrorResponseException)
                         {
@@ -233,7 +233,7 @@ namespace Ikspoz.Cli
 
                         var randomAuthorizationRuleName = $".ikspoz-{Guid.NewGuid():N}";
 
-                        Console.WriteLine("🛠 Creating authorization rule to listen to hybrid connection...");
+                        Console.WriteLine("🛠 Creating authorization rule to listen to Hybrid Connection...");
 
                         var authorizationRuleConnectionString = string.Empty;
 
@@ -261,9 +261,9 @@ namespace Ikspoz.Cli
                             return;
                         }
 
-                        Console.WriteLine("👍 Auto mode hybrid connection authorization rule created!");
+                        Console.WriteLine("👍 Auto mode Hybrid Connection authorization rule created!");
 
-                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, randomAuthorizationRuleName, authorizationRuleConnectionString, namespaceWasAutoCreated) };
+                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString, namespaceWasAutoCreated) };
 
                         await userSettingsManager.SaveUserSettingsAsync(userSettings);
                     });
@@ -364,13 +364,15 @@ namespace Ikspoz.Cli
                         }
                         else
                         {
-                            Console.WriteLine("Are you sure you want to delete your Azure Relay instance?");
+                            Console.WriteLine("Are you sure you want to delete your Azure Relay instance? (y/n)");
+
                             if (Console.ReadKey(true).Key != ConsoleKey.Y)
                             {
                                 Console.WriteLine("👍 Ok, we'll keep your resources in Azure.");
 
                                 return;
                             }
+
                             Console.WriteLine("👍 Ok, beginning resource cleanup.");
 
                             var token = GetAzureAccessToken(tenantId, cancellationToken);
@@ -382,6 +384,8 @@ namespace Ikspoz.Cli
 
                             if (userSettings.AzureRelayAutoInstance.NamespaceWasAutoCreated)
                             {
+                                Console.WriteLine("🗑 Deleting namespace...");
+
                                 try
                                 {
                                     await relayManagementClient.Namespaces.DeleteWithHttpMessagesAsync(
@@ -401,23 +405,7 @@ namespace Ikspoz.Cli
                             }
                             else
                             {
-                                try
-                                {
-                                    await relayManagementClient.Namespaces.DeleteAuthorizationRuleWithHttpMessagesAsync(
-                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
-                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
-                                        userSettings.AzureRelayAutoInstance.AuthorizationRuleName,
-                                        cancellationToken: cancellationToken);
-
-                                    Console.WriteLine("👍 Authorization rule deleted!");
-
-                                }
-                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteAuthorizationRuleErrorResponseException)
-                                {
-                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete rule: {deleteAuthorizationRuleErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteAuthorizationRuleErrorResponseException.Body.Code}{Environment.NewLine}{deleteAuthorizationRuleErrorResponseException.Body.Message}");
-
-                                    return;
-                                }
+                                Console.WriteLine("🗑 Deleting Hybrid Connection...");
 
                                 try
                                 {
@@ -427,11 +415,11 @@ namespace Ikspoz.Cli
                                         userSettings.AzureRelayAutoInstance.ConnectionName,
                                         cancellationToken: cancellationToken);
 
-                                    Console.WriteLine("👍 Hybrid connection deleted!");
+                                    Console.WriteLine("👍 Hybrid Connection deleted!");
                                 }
                                 catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteHybridConnectionErrorResponseException)
                                 {
-                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete hybrid connection: {deleteHybridConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Code}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Message}");
+                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete Hybrid Connection: {deleteHybridConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Code}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Message}");
 
                                     return;
                                 }

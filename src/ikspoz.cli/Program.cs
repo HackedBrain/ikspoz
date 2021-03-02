@@ -387,7 +387,6 @@ namespace Ikspoz.Cli
                                     await relayManagementClient.Namespaces.DeleteWithHttpMessagesAsync(
                                         userSettings.AzureRelayAutoInstance.ResourceGroup,
                                         userSettings.AzureRelayAutoInstance.RelayNamespace,
-                                        (new Dictionary<string, List<string>>()),
                                         cancellationToken: cancellationToken);
 
                                     Console.WriteLine("👍 Namespace deleted!");
@@ -408,7 +407,6 @@ namespace Ikspoz.Cli
                                         userSettings.AzureRelayAutoInstance.ResourceGroup,
                                         userSettings.AzureRelayAutoInstance.RelayNamespace,
                                         userSettings.AzureRelayAutoInstance.ConnectionName,
-                                        (new Dictionary<string, List<string>>()),
                                         cancellationToken: cancellationToken);
 
                                     Console.WriteLine("👍 Authorization rule deleted!");
@@ -417,6 +415,23 @@ namespace Ikspoz.Cli
                                 catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteAuthorizationRuleErrorResponseException)
                                 {
                                     Console.WriteLine($"💥 Unexpected status received while attempting to delete rule: {deleteAuthorizationRuleErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteAuthorizationRuleErrorResponseException.Body.Code}{Environment.NewLine}{deleteAuthorizationRuleErrorResponseException.Body.Message}");
+
+                                    return;
+                                }
+
+                                try
+                                {
+                                    await relayManagementClient.HybridConnections.DeleteWithHttpMessagesAsync(
+                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
+                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
+                                        userSettings.AzureRelayAutoInstance.ConnectionName,
+                                        cancellationToken: cancellationToken);
+
+                                    Console.WriteLine("👍 Hybrid connection deleted!");
+                                }
+                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteHybridConnectionErrorResponseException)
+                                {
+                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete hybrid connection: {deleteHybridConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Code}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Message}");
 
                                     return;
                                 }

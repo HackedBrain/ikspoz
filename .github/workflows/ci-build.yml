@@ -20,13 +20,15 @@ jobs:
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: 5.0.x
-    - name: GitVersion
+    - name: Restore tools
+      run: dotnet tool restore
+    - name: Restore dependencies
+      run: dotnet restore
+    - name: Calculate GitVersion
       id: gitversion
       uses: nmcc/actions-gitversion@v1
       with:
-        path-to-gitversion: packages/GitVersion.CommandLine/tools/GitVersion.exe
-    - name: Restore dependencies
-      run: dotnet restore
+        path-to-gitversion: dotnet tool run dotnet-gitversion
     - name: Build
       run: >
         dotnet build --no-restore --configuration $BUILD_CONFIGURATION

@@ -20,10 +20,19 @@ jobs:
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: 5.0.x
+    - name: GitVersion
+      id: gitversion
+      uses: nmcc/actions-gitversion@v1
+      with:
+        path-to-gitversion: packages/GitVersion.CommandLine/tools/GitVersion.exe
     - name: Restore dependencies
       run: dotnet restore
     - name: Build
-      run: dotnet build --no-restore --configuration $BUILD_CONFIGURATION
+      run: >
+        dotnet build --no-restore --configuration $BUILD_CONFIGURATION
+        -p:AssemblyVersion=${{ steps.gitversion.outputs.MajorMinorPatch }}
+        -p:InformationalVersion=${{ steps.gitversion.outputs.SemVer }}
+        -p:PackageVersion=${{ steps.gitversion.outputs.NuGetVersionV2 }}
     - name: Test
       run: dotnet test --no-build --configuration $BUILD_CONFIGURATION --verbosity normal
     - name: Pack

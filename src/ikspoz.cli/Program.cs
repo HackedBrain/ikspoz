@@ -63,7 +63,7 @@ namespace Ikspoz.Cli
                 var autoCommand = new Command("auto");
 
                 autoCommand.AddCommand(BuildInitializeCommand());
-                //autoCommand.AddCommand(BuildCleanupCommand());
+                autoCommand.AddCommand(BuildCleanupCommand());
 
                 autoCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
 
@@ -119,20 +119,7 @@ namespace Ikspoz.Cli
                             Console.WriteLine($"👍 Ok, beginning re-initialization.{Environment.NewLine}");
                         }
 
-                        Console.WriteLine("🔐 Authenticating with Azure...");
-
-                        var azureCredential = new DefaultAzureCredential(
-                            new DefaultAzureCredentialOptions
-                            {
-                                SharedTokenCacheTenantId = tenantId,
-                                InteractiveBrowserTenantId = tenantId,
-                                ExcludeVisualStudioCredential = true,
-                                ExcludeVisualStudioCodeCredential = true,
-                            });
-
-                        var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
-
-                        Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+                        var token = GetAzureAccessToken(tenantId, cancellationToken);
 
                         var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
                         {
@@ -149,6 +136,7 @@ namespace Ikspoz.Cli
                         }
 
                         var namespaceAlreadyExists = false;
+                        var namespaceWasAutoCreated = false;
 
                         if (!isRandomNamespace)
                         {
@@ -203,6 +191,8 @@ namespace Ikspoz.Cli
                                     cancellationToken: cancellationToken);
 
                                 Console.WriteLine("👍 Namespace created!");
+
+                                namespaceWasAutoCreated = true;
                             }
                             catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createNamespaceErrorResponseException)
                             {
@@ -212,7 +202,7 @@ namespace Ikspoz.Cli
                             }
                         }
 
-                        Console.WriteLine("🛠 Creating hybrid connection...");
+                        Console.WriteLine("🛠 Creating Hybrid Connection...");
 
                         if (azureRelayOptions.RelayConnectionName is null or { Length: 0 })
                         {
@@ -232,7 +222,7 @@ namespace Ikspoz.Cli
                                 },
                                 cancellationToken: cancellationToken);
 
-                            Console.WriteLine("👍 Auto mode hybrid connection created!");
+                            Console.WriteLine("👍 Auto mode Hybrid Connection created!");
                         }
                         catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createConnectionErrorResponseException)
                         {
@@ -243,7 +233,7 @@ namespace Ikspoz.Cli
 
                         var randomAuthorizationRuleName = $".ikspoz-{Guid.NewGuid():N}";
 
-                        Console.WriteLine("🛠 Creating authorization rule to listen to hybrid connection...");
+                        Console.WriteLine("🛠 Creating authorization rule to listen to Hybrid Connection...");
 
                         var authorizationRuleConnectionString = string.Empty;
 
@@ -271,9 +261,9 @@ namespace Ikspoz.Cli
                             return;
                         }
 
-                        Console.WriteLine("👍 Auto mode hybrid connection authorization rule created!");
+                        Console.WriteLine("👍 Auto mode Hybrid Connection authorization rule created!");
 
-                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString) };
+                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString, namespaceWasAutoCreated) };
 
                         await userSettingsManager.SaveUserSettingsAsync(userSettings);
                     });
@@ -353,6 +343,93 @@ namespace Ikspoz.Cli
 
                         return option;
                     }
+                }
+
+                static Command BuildCleanupCommand()
+                {
+                    var cleanupCommand = new Command("cleanup")
+                    {
+                        Description = "Cleans up auto-created Azure resources."
+                    };
+
+                    cleanupCommand.AddAlias("clean");
+                    cleanupCommand.AddAlias("c");
+                    cleanupCommand.Handler = CommandHandler.Create(async (string? tenantId, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    {
+                        var userSettings = await userSettingsManager.GetUserSettingsAsync();
+
+                        if (userSettings.AzureRelayAutoInstance is null)
+                        {
+                            Console.WriteLine("No instance has been initialized for auto mode. Try running ikspoz azure-relay auto initialize --help");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Are you sure you want to delete your Azure Relay instance? (y/n)");
+
+                            if (Console.ReadKey(true).Key != ConsoleKey.Y)
+                            {
+                                Console.WriteLine("👍 Ok, we'll keep your resources in Azure.");
+
+                                return;
+                            }
+
+                            Console.WriteLine("👍 Ok, beginning resource cleanup.");
+
+                            var token = GetAzureAccessToken(tenantId, cancellationToken);
+
+                            var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
+                            {
+                                SubscriptionId = userSettings.AzureRelayAutoInstance.SubscriptionId,
+                            };
+
+                            if (userSettings.AzureRelayAutoInstance.NamespaceWasAutoCreated)
+                            {
+                                Console.WriteLine("🗑 Deleting namespace...");
+
+                                try
+                                {
+                                    await relayManagementClient.Namespaces.DeleteWithHttpMessagesAsync(
+                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
+                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
+                                        cancellationToken: cancellationToken);
+
+                                    Console.WriteLine("👍 Namespace deleted!");
+
+                                }
+                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteNamespaceErrorResponseException)
+                                {
+                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete namespace: {deleteNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{deleteNamespaceErrorResponseException.Body.Message}");
+
+                                    return;
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine("🗑 Deleting Hybrid Connection...");
+
+                                try
+                                {
+                                    await relayManagementClient.HybridConnections.DeleteWithHttpMessagesAsync(
+                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
+                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
+                                        userSettings.AzureRelayAutoInstance.ConnectionName,
+                                        cancellationToken: cancellationToken);
+
+                                    Console.WriteLine("👍 Hybrid Connection deleted!");
+                                }
+                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteHybridConnectionErrorResponseException)
+                                {
+                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete Hybrid Connection: {deleteHybridConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Code}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Message}");
+
+                                    return;
+                                }
+                            }
+                            userSettings = userSettings with { AzureRelayAutoInstance = null };
+                            await userSettingsManager.SaveUserSettingsAsync(userSettings);
+                        }
+                    });
+
+                    return cleanupCommand;
                 }
             }
         }
@@ -506,6 +583,26 @@ namespace Ikspoz.Cli
                     await response.CloseAsync();
                 }
             }
+        }
+
+        private static Azure.Core.AccessToken GetAzureAccessToken(String? tenantId, CancellationToken cancellationToken)
+        {
+            Console.WriteLine("🔐 Authenticating with Azure...");
+
+            var azureCredential = new DefaultAzureCredential(
+                new DefaultAzureCredentialOptions
+                {
+                    SharedTokenCacheTenantId = tenantId,
+                    InteractiveBrowserTenantId = tenantId,
+                    ExcludeVisualStudioCredential = true,
+                    ExcludeVisualStudioCodeCredential = true,
+                });
+
+            var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
+
+            Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
+            return token;
+
         }
 
         private static Argument BuildTunnelTargetBaseUrlArgument() =>

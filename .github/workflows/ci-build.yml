@@ -47,3 +47,18 @@ jobs:
       with:
         name: nuget-packages
         path: src/**/*.nupkg
+
+  publish:
+      runs-on: ubuntu-latest
+      if: ${{ github.ref == 'refs/heads/main' }}
+      needs: [ 'build' ]
+
+      steps:
+      - name: Download NuGet Package Artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: nuget-packages
+      - name: Publish NuGet Packages
+        env:
+          NUGET_AUTH_TOKEN: ${{secrets.NUGET_AUTH_TOKEN}}
+        run: dotnet nuget push src/**/*.nupkg

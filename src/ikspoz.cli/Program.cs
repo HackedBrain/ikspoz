@@ -263,7 +263,7 @@ namespace Ikspoz.Cli
 
                         Console.WriteLine("👍 Auto mode hybrid connection authorization rule created!");
 
-                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString, namespaceWasAutoCreated) };
+                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, randomAuthorizationRuleName, authorizationRuleConnectionString, namespaceWasAutoCreated) };
 
                         await userSettingsManager.SaveUserSettingsAsync(userSettings);
                     });
@@ -406,7 +406,7 @@ namespace Ikspoz.Cli
                                     await relayManagementClient.Namespaces.DeleteAuthorizationRuleWithHttpMessagesAsync(
                                         userSettings.AzureRelayAutoInstance.ResourceGroup,
                                         userSettings.AzureRelayAutoInstance.RelayNamespace,
-                                        userSettings.AzureRelayAutoInstance.ConnectionName,
+                                        userSettings.AzureRelayAutoInstance.AuthorizationRuleName,
                                         cancellationToken: cancellationToken);
 
                                     Console.WriteLine("👍 Authorization rule deleted!");

@@ -1,48 +1,62 @@
 {
-    // Use IntelliSense to find out which attributes exist for C# debugging
-    // Use hover for the description of the existing attributes
-    // For further information visit https://github.com/OmniSharp/omnisharp-vscode/blob/master/debugger-launchjson.md
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": ".NET Core Launch (console)",
-            "type": "coreclr",
-            "request": "launch",
-            "preLaunchTask": "build",
-            // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/src/ikspoz.cli/bin/Debug/net5.0/ikspoz.dll",
-            "args": [],
-            "cwd": "${workspaceFolder}/src/ikspoz.cli",
-            "console": "internalConsole",
-            "stopAtEntry": false
-        },
-        {
-            "name": ".NET Core Attach",
-            "type": "coreclr",
-            "request": "attach",
-            "processId": "${command:pickProcess}"
-        },
-        {
-          "name": "Debug - Auto Init",
-          "type": "coreclr",
-          "request": "launch",
-          "preLaunchTask": "build",
-          "program": "${workspaceFolder}/src/ikspoz.cli/bin/Debug/net5.0/ikspoz.dll",
-          "args": ["azure-relay", "auto", "initialize", "-s", "$SUBSCRIPTION_ID", "-g", "$RESOURCE_GROUP", "-l", "$AZURE_REGION"],
-          "cwd": "${workspaceFolder}/src/ikspoz.cli",
-          "console": "internalConsole",
-          "stopAtEntry": false
-        },
-        {
-          "name": "Debug - Auto Cleanup",
-          "type": "coreclr",
-          "request": "launch",
-          "preLaunchTask": "build",
-          "program": "${workspaceFolder}/src/ikspoz.cli/bin/Debug/net5.0/ikspoz.dll",
-          "args": ["azure-relay", "auto", "cleanup"],
-          "cwd": "${workspaceFolder}/src/ikspoz.cli",
-          "console": "internalConsole",
-          "stopAtEntry": false
-        },
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": ".NET Core Launch (console)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ikspoz.cli/bin/Debug/net5.0/ikspoz.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/src/ikspoz.cli",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": ".NET Core Attach",
+      "type": "coreclr",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    },
+    {
+      "name": "Debug - Auto Init",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ikspoz.cli/bin/Debug/net5.0/ikspoz.dll",
+      "args": ["azure-relay", "auto", "initialize", "-s", "${input:subscriptionId}", "-g", "${input:resourceGroup}", "-l", "${input:azureLocation}"],
+      "cwd": "${workspaceFolder}/src/ikspoz.cli",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Debug - Auto Cleanup",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/ikspoz.cli/bin/Debug/net5.0/ikspoz.dll",
+      "args": ["azure-relay", "auto", "cleanup"],
+      "cwd": "${workspaceFolder}/src/ikspoz.cli",
+      "console": "internalConsole",
+      "stopAtEntry": false
+    },
+  ],
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "subscriptionId",
+      "description": "Please enter your subscription ID",
+    },
+    {
+      "type": "promptString",
+      "id": "resourceGroup",
+      "description": "Please enter your resource group name",
+    },
+    {
+      "type": "promptString",
+      "id": "azureLocation",
+      "description": "Please enter an Azure location (default: westus2)",
+      "default": "westus2"
+    },
+  ]
 }

@@ -1,11 +1,10 @@
 {
-	"recommendations": [
+  "recommendations": [
     "ms-dotnettools.csharp",
     "editorconfig.editorconfig",
     "github.vscode-pull-request-github",
     "ms-vscode.azure-account"
-	],
-	"unwantedRecommendations": [
-
-	]
+  ],
+  "unwantedRecommendations": [
+  ]
 }

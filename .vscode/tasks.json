@@ -2,12 +2,16 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
       "label": "build",
       "command": "dotnet",
       "type": "process",
       "args": [
         "build",
-        "${workspaceFolder}/src/ikspoz.cli/ikspoz.cli.csproj",
+        "${workspaceFolder}/ikspoz.sln",
         "/property:GenerateFullPaths=true",
         "/consoleloggerparameters:NoSummary"
       ],

@@ -45,12 +45,12 @@
     {
       "type": "promptString",
       "id": "subscriptionId",
-      "description": "Please enter your subscription ID",
+      "description": "Please enter your subscription ID"
     },
     {
       "type": "promptString",
       "id": "resourceGroup",
-      "description": "Please enter your resource group name",
+      "description": "Please enter your resource group name"
     },
     {
       "type": "promptString",

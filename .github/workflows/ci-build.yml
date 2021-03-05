@@ -10,6 +10,7 @@ on:
 
 jobs:
   build:
+    name: Build, Test, Pack
     runs-on: ubuntu-latest
     env:
       BUILD_CONFIGURATION: Release
@@ -49,6 +50,7 @@ jobs:
         path: src/**/*.nupkg
 
   publish:
+      name: Publish Packages
       runs-on: ubuntu-latest
       if: ${{ github.ref == 'refs/heads/main' }}
       needs: [ 'build' ]
@@ -58,7 +60,9 @@ jobs:
         uses: actions/download-artifact@v2
         with:
           name: nuget-packages
+          path: nuget-packages
       - name: Publish NuGet Packages
         env:
-          NUGET_AUTH_TOKEN: ${{secrets.NUGET_AUTH_TOKEN}}
-        run: dotnet nuget push src/**/*.nupkg
+          NUGET_API_KEY: ${{secrets.NUGET_API_KEY}}
+          NUGET_PACKAGE_SOURCE: https://api.nuget.org/v3/index.json
+        run: dotnet nuget push nuget-packages/**/*.nupkg --source $NUGET_PACKAGE_SOURCE --api-key $NUGET_API_KEY

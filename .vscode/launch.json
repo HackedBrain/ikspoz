@@ -39,7 +39,7 @@
       "cwd": "${workspaceFolder}/src/ikspoz.cli",
       "console": "internalConsole",
       "stopAtEntry": false
-    },
+    }
   ],
   "inputs": [
     {
@@ -57,6 +57,6 @@
       "id": "azureLocation",
       "description": "Please enter an Azure location (default: westus2)",
       "default": "westus2"
-    },
+    }
   ]
 }

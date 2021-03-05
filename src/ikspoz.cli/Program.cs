@@ -525,7 +525,10 @@ namespace Ikspoz.Cli
 
                     foreach (var requestHeaderKey in request.Headers.AllKeys)
                     {
-                        tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
+                        if (!requestHeaderKey.Equals("Host", StringComparison.OrdinalIgnoreCase))
+                        {
+                            tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
+                        }
                     }
 
                     HttpResponseMessage tunneledResponse;

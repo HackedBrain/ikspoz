@@ -5,8 +5,10 @@ using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -19,6 +21,25 @@ namespace Ikspoz.Cli
 {
     public class Program
     {
+        private static readonly HashSet<string> DoNotTunnelRequestHeaders = new(new[]
+        {
+            "Host",
+        }, StringComparer.OrdinalIgnoreCase);
+
+        private static readonly HashSet<string> ContentSpecificTunnelRequestHeaders = new(new[]
+        {
+            "Allow",
+            "Content-Disposition",
+            "Content-Encoding",
+            "Content-Language",
+            "Content-Length",
+            "Content-Location",
+            "Content-Range",
+            "Content-Type",
+            "Expires",
+            "Last-Modified",
+        }, StringComparer.OrdinalIgnoreCase);
+
         public static async Task<int> Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
@@ -516,19 +537,27 @@ namespace Ikspoz.Cli
 
                     Console.WriteLine($"→ Request received: {request.HttpMethod} - {tunnelRelativeRequestUrl}");
 
+                    var tunneledRequestContent = new StreamContent(request.InputStream);
+
                     using var tunneledRequest = new HttpRequestMessage
                     {
                         Method = new HttpMethod(request.HttpMethod),
                         RequestUri = tunnelRelativeRequestUrl,
-                        Content = new StreamContent(request.InputStream),
+                        Content = tunneledRequestContent,
                     };
 
                     foreach (var requestHeaderKey in request.Headers.AllKeys)
                     {
-                        if (!requestHeaderKey.Equals("Host", StringComparison.OrdinalIgnoreCase))
+                        // If the header is on the "do not tunnel" list then just skip it
+                        if (DoNotTunnelRequestHeaders.Contains(requestHeaderKey))
                         {
-                            tunneledRequest.Headers.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
+                            continue;
                         }
+
+                        // Determine which headers collection to tunnel the value through
+                        HttpHeaders targetHeadersCollection = ContentSpecificTunnelRequestHeaders.Contains(requestHeaderKey) ? tunneledRequestContent.Headers : tunneledRequest.Headers;
+
+                        targetHeadersCollection.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
                     }
 
                     HttpResponseMessage tunneledResponse;
@@ -553,7 +582,9 @@ namespace Ikspoz.Cli
                         response.StatusCode = tunneledResponse.StatusCode;
                         response.StatusDescription = tunneledResponse.ReasonPhrase;
 
-                        foreach (var tunneledResponseHeader in tunneledResponse.Headers)
+                        var allTunneledResponseHeaders = tunneledResponse.Headers.Concat(tunneledResponse.Content.Headers);
+
+                        foreach (var tunneledResponseHeader in allTunneledResponseHeaders)
                         {
                             foreach (var tunneledResponseHeaderValue in tunneledResponseHeader.Value)
                             {

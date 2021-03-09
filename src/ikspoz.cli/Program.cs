@@ -5,41 +5,18 @@ using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.IO;
-using System.Linq;
 using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Ikspoz.Cli.Settings;
-using Microsoft.Azure.Relay;
 
 namespace Ikspoz.Cli
 {
     public class Program
     {
-        private static readonly HashSet<string> DoNotTunnelRequestHeaders = new(new[]
-        {
-            "Host",
-        }, StringComparer.OrdinalIgnoreCase);
-
-        private static readonly HashSet<string> ContentSpecificTunnelRequestHeaders = new(new[]
-        {
-            "Allow",
-            "Content-Disposition",
-            "Content-Encoding",
-            "Content-Language",
-            "Content-Length",
-            "Content-Location",
-            "Content-Range",
-            "Content-Type",
-            "Expires",
-            "Last-Modified",
-        }, StringComparer.OrdinalIgnoreCase);
-
         public static async Task<int> Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
@@ -74,7 +51,7 @@ namespace Ikspoz.Cli
 
             azureRelayCommand.Handler = CommandHandler.Create(async (string relayConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
             {
-                await TunnelTrafficAsync(relayConnectionString, tunnelTargetBaseUrl, cancellationToken);
+                await TunnelTrafficAsync(new AzureRelayTunneledConnection(relayConnectionString, tunnelTargetBaseUrl), cancellationToken);
             });
 
             return azureRelayCommand;
@@ -99,9 +76,7 @@ namespace Ikspoz.Cli
                         return;
                     }
 
-                    await TunnelTrafficAsync(userSettings.AzureRelayAutoInstance.ConnectionString, tunnelTargetBaseUrl, cancellationToken);
-
-                    Console.WriteLine($"👋 Bye!");
+                    await TunnelTrafficAsync(new AzureRelayTunneledConnection(userSettings.AzureRelayAutoInstance.ConnectionString, tunnelTargetBaseUrl), cancellationToken);
                 });
 
                 return autoCommand;
@@ -464,43 +439,59 @@ namespace Ikspoz.Cli
             return rootCommand;
         }
 
-        private static async Task TunnelTrafficAsync(string hybridConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken)
+        private static async Task TunnelTrafficAsync(ITunneledConnection connection, CancellationToken cancellationToken)
         {
-            Console.WriteLine($"📡 Connecting...");
-
-            var tunnelingHttpClient = new HttpClient()
+            connection.Events.OnConnectionOpening = () => Console.WriteLine($"📡 Connecting...");
+            connection.Events.OnConnectionOpened = (hybridConnectionEndpointPublicUrl) =>
             {
-                BaseAddress = tunnelTargetBaseUrl
+                Console.WriteLine($"💫 Connected!{Environment.NewLine}");
+
+                Console.WriteLine($"📥 You can begin sending requests to the following public endpoint:{Environment.NewLine}\t{hybridConnectionEndpointPublicUrl}{Environment.NewLine}");
             };
 
-            var hybridConnectionListener = new HybridConnectionListener(hybridConnectionString);
-            var hybridConnectionEndpointPublicUrl = new UriBuilder(hybridConnectionListener.Address) { Scheme = "https" }.Uri;
+            connection.Events.OnRequestTunnelingException = (exception) =>
+            {
+                Console.WriteLine("💥 Error tunneling request:");
+                Console.WriteLine(exception.ToString());
+            };
 
-            hybridConnectionListener.RequestHandler = TunnelIndividualHttpRequest;
+            connection.Events.OnResponseTunnelingException = (exception) =>
+            {
+                Console.WriteLine("💥 Error tunneling response:");
+                Console.WriteLine(exception.ToString());
+            };
+
+
+            connection.Events.OnTunnelingHttpRequest = (request) =>
+            {
+                Console.WriteLine($"→ Tunneling request: {request.Method} - {request.RequestUri}");
+            };
+
+            connection.Events.OnTunnelingHttpResponse = (response) =>
+            {
+                Console.WriteLine($"← Tunneling response: {response.StatusCode} ({response.Content.Headers.ContentLength ?? 0} bytes)");
+            };
+
+            connection.Events.OnConnectionClosing = () =>
+            {
+                Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}🔌 Closing connection...");
+            };
+
+            connection.Events.OnConnectionClosed = () =>
+            {
+                Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}close Connection closed!");
+            };
 
             try
             {
-                await hybridConnectionListener.OpenAsync(cancellationToken);
-            }
-            catch (EndpointNotFoundException)
-            {
-                Console.WriteLine($"💥 The specified Azure Relay Hybrid Connection was not found. Please check the specified connection string to make sure it contains the expected Hybrid Connection name for the Entity value.");
-
-                return;
+                await connection.OpenAsync(cancellationToken);
             }
             catch (Exception exception)
             {
-                Console.WriteLine($"💥 An unexpected error occurred while connecting to the specified Azure Relay Hybrid Connection:{Environment.NewLine}{Environment.NewLine}{exception.Message}");
+                Console.WriteLine($"💥 An unexpected error occurred while attempting to open the connection:{Environment.NewLine}{Environment.NewLine}{exception.Message}");
 
-                // TODO: log full exception details
-
-                return;
+                throw;
             }
-
-            Console.WriteLine($"💫 Connected!{Environment.NewLine}");
-
-
-            Console.WriteLine($"📥 You can begin sending requests to the following public endpoint:{Environment.NewLine}\t{hybridConnectionEndpointPublicUrl}{Environment.NewLine}");
 
             var shutdownCompletedEvent = new ManualResetEvent(false);
 
@@ -508,11 +499,9 @@ namespace Ikspoz.Cli
             {
                 a.Cancel = true;
 
-                Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}🔌 Shutting down...");
-
                 try
                 {
-                    await hybridConnectionListener.CloseAsync();
+                    await connection.CloseAsync(cancellationToken);
                 }
                 catch (Exception)
                 {
@@ -526,97 +515,7 @@ namespace Ikspoz.Cli
 
             shutdownCompletedEvent.WaitOne();
 
-            async void TunnelIndividualHttpRequest(RelayedHttpListenerContext context)
-            {
-                var request = context.Request;
-                var response = context.Response;
-
-                try
-                {
-                    var tunnelRelativeRequestUrl = hybridConnectionListener.Address.MakeRelativeUri(request.Url);
-
-                    Console.WriteLine($"→ Request received: {request.HttpMethod} - {tunnelRelativeRequestUrl}");
-
-                    var tunneledRequestContent = new StreamContent(request.InputStream);
-
-                    using var tunneledRequest = new HttpRequestMessage
-                    {
-                        Method = new HttpMethod(request.HttpMethod),
-                        RequestUri = tunnelRelativeRequestUrl,
-                        Content = tunneledRequestContent,
-                    };
-
-                    foreach (var requestHeaderKey in request.Headers.AllKeys)
-                    {
-                        // If the header is on the "do not tunnel" list then just skip it
-                        if (DoNotTunnelRequestHeaders.Contains(requestHeaderKey))
-                        {
-                            continue;
-                        }
-
-                        // Determine which headers collection to tunnel the value through
-                        HttpHeaders targetHeadersCollection = ContentSpecificTunnelRequestHeaders.Contains(requestHeaderKey) ? tunneledRequestContent.Headers : tunneledRequest.Headers;
-
-                        targetHeadersCollection.Add(requestHeaderKey, request.Headers.GetValues(requestHeaderKey)!);
-                    }
-
-                    HttpResponseMessage tunneledResponse;
-
-                    try
-                    {
-                        tunneledResponse = await tunnelingHttpClient.SendAsync(tunneledRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-                    }
-                    catch (Exception exception)
-                    {
-                        Console.WriteLine("💥 Error tunneling request:");
-                        Console.WriteLine(exception.ToString());
-
-                        response.StatusCode = HttpStatusCode.InternalServerError;
-                        response.StatusDescription = "ikspoz: Error tunneling request";
-
-                        return;
-                    }
-
-                    using (tunneledResponse)
-                    {
-                        response.StatusCode = tunneledResponse.StatusCode;
-                        response.StatusDescription = tunneledResponse.ReasonPhrase;
-
-                        var allTunneledResponseHeaders = tunneledResponse.Headers.Concat(tunneledResponse.Content.Headers);
-
-                        foreach (var tunneledResponseHeader in allTunneledResponseHeaders)
-                        {
-                            foreach (var tunneledResponseHeaderValue in tunneledResponseHeader.Value)
-                            {
-                                response.Headers.Add(tunneledResponseHeader.Key, tunneledResponseHeaderValue);
-                            }
-                        }
-
-                        try
-                        {
-                            await tunneledResponse.Content.CopyToAsync(response.OutputStream, cancellationToken);
-                        }
-                        catch (Exception exception)
-                        {
-                            Console.WriteLine("💥 Error tunneling response:");
-                            Console.WriteLine(exception.ToString());
-
-                            return;
-                        }
-                    }
-
-                    Console.WriteLine($"← Response sent: {response.StatusCode} ({response.Headers["Content-Length"]} bytes)");
-                }
-                catch (Exception exception)
-                {
-                    Console.WriteLine("💥 Unexpected error tunneling request:");
-                    Console.WriteLine(exception.ToString());
-                }
-                finally
-                {
-                    await response.CloseAsync();
-                }
-            }
+            Console.WriteLine($"👋 Bye!");
         }
 
         private static Azure.Core.AccessToken GetAzureAccessToken(String? tenantId, CancellationToken cancellationToken)

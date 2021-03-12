@@ -1,37 +1,74 @@
-## Welcome to GitHub Pages
+# Welcome to ikspōz
 
-You can use the [editor on GitHub](https://github.com/HackedBrain/ikspoz/edit/main/docs/index.md) to maintain and preview the content for your website in Markdown files.
+Welcome to ikspōz, a web traffic tunneling tool aimed at allowing developers to
+easily leverage an existing Azure Subscription to effortlessly tunnel traffic
+from external clients/services into your local network.
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+## What does this thing do?
 
-### Markdown
+ikspōz aims to provide a very simple way to leverage an existing Azure
+Subscription by utilizing Azure Relay to create a Hybrid Connection that can
+tunnel the traffic between a developer's local network and an endpoint on the
+public internet.
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+### Use cases
 
-```markdown
-Syntax highlighted code block
+The primary use cases for a tool like this are:
 
-# Header 1
-## Header 2
-### Header 3
+1. You are working on a project that you want to expose from your local machine
+   to the public internal so other people can access it.
+1. You are integrating with an external web service that issues callbacks in
+   the form of web hooks and you need those directed to your local machine so
+   you can debug or test your working version of the code.
 
-- Bulleted
-- List
+## How do I get started?
 
-1. Numbered
-2. List
+- [Check out the releases page to download the latest version](./releases)
+- [Check out our documentation on contributing to development of the tool](./CONTRIBUTING.md)
 
-**Bold** and _Italic_ and `Code` text
+## FAQ
 
-[Link](url) and ![Image](src)
-```
+### What's with the name?
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
+The name comes from the phonetic pronunciation of the English word "expose".
 
-### Jekyll Themes
+### What are project's goals?
 
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/HackedBrain/ikspoz/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
+- A tool for developers
+- CLI first
+- Cross platform
+- Easily installed via well known application management tools
+- Web traffic focused (HTTP/1+2 today, WebSockets coming)
+- Direct integration with Azure that require nothing more than an Azure
+  Subscription to get started
+- Ability to connect to existing Azure Relay instances managed outside of
+  the tool
 
-### Support or Contact
+### What are the project's non-goals?
 
-Having trouble with Pages? Check out our [documentation](https://docs.github.com/categories/github-pages-basics/) or [contact support](https://support.github.com/contact) and we’ll help you sort it out.
+- Support for non-"web" traffic (e.g. pure TCP connections)
+- Running as part of any system infrastructure
+
+### How much does this cost?
+
+The ikspōz tool itself is provided for free.
+
+#### Azure Relay mode costs
+
+When using the direct Azure Relay mode [there are costs
+associated with an Azure Relay instance](https://docs.microsoft.com/en-us/azure/azure-relay/relay-faq#pricing). You will be billed via your Azure Subscription for those
+charges and ikspōz has nothing to do with those.
+
+### I noticed you work at Microsoft, is this a Microsoft supported tool?
+
+No. This should be considered a personal OSS project and you should expect
+_zero_ support from Microsoft for this tool.
+
+### Do you know there are already other tools out there that do this?
+
+Yes, however there are several reasons why those tools may not work well for
+some people and that's why this is being created as an alternative. You are free
+to compare and contrast and make a decision which one best suits your needs.
+
+> NOTE: If you don't already have an Azure account, you can get always started
+> with a free account, just [check out the FAQ here](https://azure.microsoft.com/en-us/free/free-account-faq/).

@@ -23,8 +23,30 @@ The primary use cases for a tool like this are:
 
 ## How do I get started?
 
-- [Check out the releases page to download the latest version](./releases)
-- [Check out our documentation on contributing to development of the tool](./CONTRIBUTING.md)
+### Installing
+
+Initially we're offering the program as [a .NET tool](https://docs.microsoft.com/en-us/dotnet/core/tools/global-tools)
+because we expect the initial audience to be developers who will already have
+the .NET SDK installed.
+
+It can be installed using the following:
+
+> dotnet tool install HackedBrain.ikspoz.cli
+
+If there is enough interest for other kinds of packages/installers we will look
+into creating those. This would be provided as standalone installs and would not
+require the .NET SDK to be installed. Please use [the
+`installation`
+label](https://github.com/HackedBrain/ikspoz/issues?q=is%3Aissue+label%3Ainstallation)
+to find existing issues or for creating new issues related to installation.
+
+You can also [keep an eye on the releases page](https://github.com/HackedBrain/ikspoz/releases) for release notes or
+to eventually download the latest versions of whatever standalone installs we
+provide.
+
+### Contributing
+
+If you're interested in contributing [please check out our documentation on contributing here](./CONTRIBUTING.md).
 
 ## FAQ
 

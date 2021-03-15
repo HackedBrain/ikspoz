@@ -5,14 +5,12 @@ using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.CommandLine.Rendering;
-using System.CommandLine.Rendering.Views;
 using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Azure.Identity;
 using Ikspoz.Cli.Settings;
 
 namespace Ikspoz.Cli
@@ -27,6 +25,19 @@ namespace Ikspoz.Cli
 
             return await new CommandLineBuilder(BuildRootCommand())
                 .UseMiddleware(DisplayBanner)
+                .UseMiddleware((context) =>
+                {
+                    context.BindingContext.AddService<IAzureAuthTokenProvider>(sp =>
+                            context.ParseResult.HasOption("--azure-auth-token")
+                                ?
+                                new RawTokenAzureTokenProvider(context.ParseResult.ValueForOption<string>("--azure-auth-token")!)
+                                :
+                                (context.ParseResult.HasOption("--azure-tenant-id")
+                                    ?
+                                    new AzureIdentityAzureTokenProvider(context.ParseResult.ValueForOption<string>("--azure-tenant-id")!)
+                                    :
+                                    new AzureIdentityAzureTokenProvider()));
+                })
                 .UseMiddleware((context) =>
                 {
                     context.BindingContext.AddService<IUserSettingsManager>(sp => new UserSettingsFileSystemBasedManager(Path.Combine(homeDirectory, ".ikspoz"), new UserSettingsJsonSerializer()));
@@ -67,6 +78,8 @@ namespace Ikspoz.Cli
 
             azureRelayCommand.AddArgument(BuildAzureRelayConnectionStringArgument());
             azureRelayCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
+
+            azureRelayCommand.AddGlobalOption(BuildAzureAuthTokenOption());
 
             azureRelayCommand.Handler = CommandHandler.Create(async (string relayConnectionString, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
             {
@@ -116,7 +129,7 @@ namespace Ikspoz.Cli
                     initializeCommand.AddOption(BuildAzureRelayNamespaceOption());
                     initializeCommand.AddOption(BuildAzureRelayNamespaceLocationOption());
 
-                    initializeCommand.Handler = CommandHandler.Create(async (string? tenantId, string subscriptionId, AzureRelayOptions azureRelayOptions, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    initializeCommand.Handler = CommandHandler.Create(async (string? tenantId, string subscriptionId, AzureRelayOptions azureRelayOptions, IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
                     {
                         var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -134,9 +147,9 @@ namespace Ikspoz.Cli
                             Console.WriteLine($"👍 Ok, beginning re-initialization.{Environment.NewLine}");
                         }
 
-                        var token = GetAzureAccessToken(tenantId, cancellationToken);
+                        var token = await azureAuthTokenProvider.GetTokenAsync(cancellationToken);
 
-                        var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
+                        var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token))
                         {
                             SubscriptionId = subscriptionId,
                         };
@@ -369,7 +382,7 @@ namespace Ikspoz.Cli
 
                     cleanupCommand.AddAlias("clean");
                     cleanupCommand.AddAlias("c");
-                    cleanupCommand.Handler = CommandHandler.Create(async (string? tenantId, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    cleanupCommand.Handler = CommandHandler.Create(async (string? tenantId, IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
                     {
                         var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -390,9 +403,9 @@ namespace Ikspoz.Cli
 
                             Console.WriteLine("👍 Ok, beginning resource cleanup.");
 
-                            var token = GetAzureAccessToken(tenantId, cancellationToken);
+                            var token = await azureAuthTokenProvider.GetTokenAsync(cancellationToken);
 
-                            var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token.Token))
+                            var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token))
                             {
                                 SubscriptionId = userSettings.AzureRelayAutoInstance.SubscriptionId,
                             };
@@ -446,6 +459,29 @@ namespace Ikspoz.Cli
 
                     return cleanupCommand;
                 }
+            }
+
+            static Argument<string> BuildAzureRelayConnectionStringArgument()
+            {
+                return new Argument<string>()
+                {
+                    Name = "relay-connection-string",
+                    Description = "A connection string for an existing Azure Relay Hybrid Connection.",
+                }
+                .AddSuggestions("Endpoint=sb://<namespace-name>.servicebus.windows.net/;Entity=<hybrid-connection-name>;SharedAccessKeyName=<key-name>;SharedAccessKey=<base64-encoded-key>");
+            }
+
+            static Option BuildAzureAuthTokenOption()
+            {
+                var azureAuthTokenOption = new Option<string>("--azure-auth-token")
+                {
+                    Description = "An Azure authentication token (JWT) that can be used for any Azure management operations. If not specified, we'll use the Azure Identity SDK to try to authenticate you.",
+                };
+
+                azureAuthTokenOption.AddAlias("--azure-auth");
+                azureAuthTokenOption.AddAlias("--aat");
+
+                return azureAuthTokenOption;
             }
         }
 
@@ -546,26 +582,6 @@ namespace Ikspoz.Cli
             Console.WriteLine($"👋 Bye!");
         }
 
-        private static Azure.Core.AccessToken GetAzureAccessToken(String? tenantId, CancellationToken cancellationToken)
-        {
-            Console.WriteLine("🔐 Authenticating with Azure...");
-
-            var azureCredential = new DefaultAzureCredential(
-                new DefaultAzureCredentialOptions
-                {
-                    SharedTokenCacheTenantId = tenantId,
-                    InteractiveBrowserTenantId = tenantId,
-                    ExcludeVisualStudioCredential = true,
-                    ExcludeVisualStudioCodeCredential = true,
-                });
-
-            var token = azureCredential.GetToken(new Azure.Core.TokenRequestContext(new[] { "https://management.azure.com/.default" }), cancellationToken);
-
-            Console.WriteLine($"🔓 Authenticated!{Environment.NewLine}{Environment.NewLine}");
-            return token;
-
-        }
-
         private static Argument BuildTunnelTargetBaseUrlArgument() =>
             new Argument<Uri>
             {
@@ -573,12 +589,5 @@ namespace Ikspoz.Cli
                 Description = "The base URL where traffic should be tunneled to.",
             }
             .AddSuggestions("http://localhost", "https://localhost", "https://localhost:8181", "https://swapi.dev/api/");
-
-        private static Argument<string> BuildAzureRelayConnectionStringArgument() =>
-            new Argument<string>
-            {
-                Name = "relay-connection-string",
-                Description = "A connection string for an existing Azure Relay Hybrid Connection.",
-            }.AddSuggestions("Endpoint=sb://<namespace-name>.servicebus.windows.net/;Entity=<hybrid-connection-name>;SharedAccessKeyName=<key-name>;SharedAccessKey=<base64-encoded-key>");
     }
 }

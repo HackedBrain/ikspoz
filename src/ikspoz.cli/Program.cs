@@ -4,6 +4,8 @@ using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.CommandLine.Rendering;
+using System.CommandLine.Rendering.Views;
 using System.IO;
 using System.Net;
 using System.Reflection;
@@ -24,18 +26,35 @@ namespace Ikspoz.Cli
             var homeDirectory = Environment.GetEnvironmentVariable("HOME") ?? Environment.GetEnvironmentVariable("USERPROFILE") ?? Environment.CurrentDirectory;
 
             return await new CommandLineBuilder(BuildRootCommand())
-                .UseMiddleware((context) =>
-                {
-                    Console.WriteLine($"🎉 Welcome to ikspōz!{Environment.NewLine}");
-                })
+                .UseMiddleware(DisplayBanner)
                 .UseMiddleware((context) =>
                 {
                     context.BindingContext.AddService<IUserSettingsManager>(sp => new UserSettingsFileSystemBasedManager(Path.Combine(homeDirectory, ".ikspoz"), new UserSettingsJsonSerializer()));
                 })
                 .UseDefaults()
+                .UseAnsiTerminalWhenAvailable()
                 .Build()
                 .InvokeAsync(args);
         }
+
+        private static void DisplayBanner(InvocationContext context)
+        {
+            if (!context.ParseResult.HasOption("--no-banner"))
+            {
+                Console.WriteLine(@"
+                            ██████╗
+                            ╚═════╝
+██╗██╗  ██╗███████╗██████╗  ██████╗ ███████╗
+██║██║ ██╔╝██╔════╝██╔══██╗██╔═══██╗╚══███╔╝
+██║█████╔╝ ███████╗██████╔╝██║   ██║  ███╔╝
+██║██╔═██╗ ╚════██║██╔═══╝ ██║   ██║ ███╔╝
+██║██║  ██╗███████║██║     ╚██████╔╝███████╗
+╚═╝╚═╝  ╚═╝╚══════╝╚═╝      ╚═════╝ ╚══════╝");
+
+                Console.WriteLine(@$"v{GetAppDisplayVersion()}{Environment.NewLine}");
+            }
+        }
+        private static string GetAppDisplayVersion() => typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
 
         private static Command BuildAzureRelayCommand()
         {
@@ -435,6 +454,15 @@ namespace Ikspoz.Cli
             var rootCommand = new RootCommand();
 
             rootCommand.AddCommand(BuildAzureRelayCommand());
+
+            var noBannerOption = new Option("--no-banner")
+            {
+                Description = "Prevents the application banner from being displayed.",
+            };
+
+            noBannerOption.AddAlias("--nb");
+
+            rootCommand.AddGlobalOption(noBannerOption);
 
             return rootCommand;
         }

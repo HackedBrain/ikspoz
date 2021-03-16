@@ -14,7 +14,7 @@ namespace Ikspoz.Cli
 
     internal record AzureRelayHybridConnectionCreationResult(bool Succeeded, string NamespaceName = "", string ConnectionName = "", string ConnectionString = "", bool NamespaceWasAutoCreated = false)
     {
-        public static readonly AzureRelayHybridConnectionCreationResult Failed = new(false);
+        public static readonly AzureRelayHybridConnectionCreationResult Failed = new AzureRelayHybridConnectionCreationResult(false);
     }
 
     internal sealed class AzureRelayHybridConnectionManager : IAzureRelayHybridConnectionManager

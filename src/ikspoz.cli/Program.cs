@@ -24,26 +24,10 @@ namespace Ikspoz.Cli
             var homeDirectory = Environment.GetEnvironmentVariable("HOME") ?? Environment.GetEnvironmentVariable("USERPROFILE") ?? Environment.CurrentDirectory;
 
             return await new CommandLineBuilder(BuildRootCommand())
-                .UseMiddleware(DisplayBanner)
-                .UseMiddleware((context) =>
-                {
-                    context.BindingContext.AddService<IAzureAuthTokenProvider>(sp =>
-                            context.ParseResult.HasOption("--azure-auth-token")
-                                ?
-                                new RawTokenAzureTokenProvider(context.ParseResult.ValueForOption<string>("--azure-auth-token")!)
-                                :
-                                (context.ParseResult.HasOption("--azure-tenant-id")
-                                    ?
-                                    new AzureIdentityAzureTokenProvider(context.ParseResult.ValueForOption<string>("--azure-tenant-id")!)
-                                    :
-                                    new AzureIdentityAzureTokenProvider()));
-                })
-                .UseMiddleware((context) =>
-                {
-                    context.BindingContext.AddService<IUserSettingsManager>(sp => new UserSettingsFileSystemBasedManager(Path.Combine(homeDirectory, ".ikspoz"), new UserSettingsJsonSerializer()));
-                })
                 .UseDefaults()
-                .UseAnsiTerminalWhenAvailable()
+                .UseMiddleware(DisplayBanner)
+                .UseUserSettingsFileSystemBasedManager(homeDirectory)
+                .UseDefaultAzureAuthTokenProvider()
                 .Build()
                 .InvokeAsync(args);
         }

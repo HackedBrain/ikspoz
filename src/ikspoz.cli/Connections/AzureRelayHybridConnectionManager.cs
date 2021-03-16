@@ -12,7 +12,7 @@ namespace Ikspoz.Cli
         Task DeleteConnectionAsync(AzureRelayOptions azureRelayOptions, bool deleteEntireNamespace, CancellationToken cancellationToken);
     }
 
-    internal record AzureRelayHybridConnectionCreationResult(bool Succeeded, string ConnectionName = "", string ConnectionString = "", bool NamespaceWasAutoCreated = false)
+    internal record AzureRelayHybridConnectionCreationResult(bool Succeeded, string NamespaceName = "", string ConnectionName = "", string ConnectionString = "", bool NamespaceWasAutoCreated = false)
     {
         public static readonly AzureRelayHybridConnectionCreationResult Failed = new(false);
     }
@@ -114,11 +114,9 @@ namespace Ikspoz.Cli
 
             Console.WriteLine("🛠 Creating Hybrid Connection...");
 
-            var hybridConnectionName = azureRelayOptions.RelayConnectionName;
-
-            if (hybridConnectionName is null or { Length: 0 })
+            if (azureRelayOptions.RelayConnectionName is null or { Length: 0 })
             {
-                hybridConnectionName = $"ikspoz-auto-connection-{Guid.NewGuid():N}";
+                azureRelayOptions = azureRelayOptions with { RelayConnectionName = $"ikspoz-auto-connection-{Guid.NewGuid():N}" };
             }
 
             try
@@ -126,7 +124,7 @@ namespace Ikspoz.Cli
                 await relayManagementClient.HybridConnections.CreateOrUpdateWithHttpMessagesAsync(
                     azureRelayOptions.ResourceGroup,
                     azureRelayOptions.RelayNamespace,
-                    hybridConnectionName,
+                    azureRelayOptions.RelayConnectionName,
                     new Microsoft.Azure.Management.Relay.Models.HybridConnection
                     {
                         RequiresClientAuthorization = false,
@@ -154,7 +152,7 @@ namespace Ikspoz.Cli
                 await relayManagementClient.HybridConnections.CreateOrUpdateAuthorizationRuleWithHttpMessagesAsync(
                     azureRelayOptions.ResourceGroup,
                     azureRelayOptions.RelayNamespace,
-                    hybridConnectionName,
+                    azureRelayOptions.RelayConnectionName,
                     randomAuthorizationRuleName,
                     new Microsoft.Azure.Management.Relay.Models.AuthorizationRule
                     {
@@ -162,7 +160,7 @@ namespace Ikspoz.Cli
                     },
                     cancellationToken: cancellationToken);
 
-                var listAccessKeysResponse = await relayManagementClient.HybridConnections.ListKeysWithHttpMessagesAsync(azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, hybridConnectionName, randomAuthorizationRuleName, cancellationToken: cancellationToken);
+                var listAccessKeysResponse = await relayManagementClient.HybridConnections.ListKeysWithHttpMessagesAsync(azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName, randomAuthorizationRuleName, cancellationToken: cancellationToken);
 
                 authorizationRuleConnectionString = listAccessKeysResponse.Body.PrimaryConnectionString;
             }
@@ -175,7 +173,7 @@ namespace Ikspoz.Cli
 
             Console.WriteLine("👍 Auto mode Hybrid Connection authorization rule created!");
 
-            return new(true, authorizationRuleConnectionString, hybridConnectionName, namespaceWasAutoCreated);
+            return new(true, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName, authorizationRuleConnectionString, namespaceWasAutoCreated);
         }
 
         public async Task DeleteConnectionAsync(AzureRelayOptions azureRelayOptions, bool deleteEntireNamespace, CancellationToken cancellationToken)

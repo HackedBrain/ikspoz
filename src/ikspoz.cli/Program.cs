@@ -153,7 +153,7 @@ namespace Ikspoz.Cli
 
                         if (azureRelayConnectionCreationResult.Succeeded)
                         {
-                            userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(azureRelayOptions.SubscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, azureRelayConnectionCreationResult.ConnectionString, azureRelayConnectionCreationResult.NamespaceWasAutoCreated) };
+                            userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(azureRelayOptions.SubscriptionId, azureRelayOptions.ResourceGroup, azureRelayConnectionCreationResult.NamespaceName, azureRelayConnectionCreationResult.ConnectionName, azureRelayConnectionCreationResult.ConnectionString, azureRelayConnectionCreationResult.NamespaceWasAutoCreated) };
 
                             await userSettingsManager.SaveUserSettingsAsync(userSettings);
                         }

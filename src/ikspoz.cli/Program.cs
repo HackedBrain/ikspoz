@@ -97,7 +97,7 @@ namespace Ikspoz.Cli
 
                 autoCommand.AddArgument(BuildTunnelTargetBaseUrlArgument());
 
-                autoCommand.Handler = CommandHandler.Create(async (InvocationContext invocationContext, IUserSettingsManager userSettingsManager, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
+                autoCommand.Handler = CommandHandler.Create(async (IUserSettingsManager userSettingsManager, Uri tunnelTargetBaseUrl, CancellationToken cancellationToken) =>
                 {
                     var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -129,7 +129,7 @@ namespace Ikspoz.Cli
                     initializeCommand.AddOption(BuildAzureRelayNamespaceOption());
                     initializeCommand.AddOption(BuildAzureRelayNamespaceLocationOption());
 
-                    initializeCommand.Handler = CommandHandler.Create(async (string? tenantId, string subscriptionId, AzureRelayOptions azureRelayOptions, IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    initializeCommand.Handler = CommandHandler.Create(async (AzureRelayOptions azureRelayOptions, IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
                     {
                         var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -147,153 +147,16 @@ namespace Ikspoz.Cli
                             Console.WriteLine($"👍 Ok, beginning re-initialization.{Environment.NewLine}");
                         }
 
-                        var token = await azureAuthTokenProvider.GetTokenAsync(cancellationToken);
+                        var azureRelayConnectionManager = new AzureRelayHybridConnectionManager(azureAuthTokenProvider);
 
-                        var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token))
+                        var azureRelayConnectionCreationResult = await azureRelayConnectionManager.CreateConnectionAsync(azureRelayOptions, cancellationToken);
+
+                        if (azureRelayConnectionCreationResult.Succeeded)
                         {
-                            SubscriptionId = subscriptionId,
-                        };
+                            userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(azureRelayOptions.SubscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, azureRelayConnectionCreationResult.ConnectionString, azureRelayConnectionCreationResult.NamespaceWasAutoCreated) };
 
-                        var isRandomNamespace = false;
-
-                        if (azureRelayOptions.RelayNamespace is null or { Length: 0 })
-                        {
-                            azureRelayOptions = azureRelayOptions with { RelayNamespace = $"ikspoz-auto-{Guid.NewGuid():N}" };
-
-                            isRandomNamespace = true;
+                            await userSettingsManager.SaveUserSettingsAsync(userSettings);
                         }
-
-                        var namespaceAlreadyExists = false;
-                        var namespaceWasAutoCreated = false;
-
-                        if (!isRandomNamespace)
-                        {
-                            Console.WriteLine($"🔎 Checking if \"{azureRelayOptions.RelayNamespace}\" namespace already exists...");
-
-                            try
-                            {
-                                await relayManagementClient.Namespaces.GetWithHttpMessagesAsync(
-                                    azureRelayOptions.ResourceGroup,
-                                    azureRelayOptions.RelayNamespace,
-                                    cancellationToken: cancellationToken);
-
-                                Console.WriteLine("✔ Namespace already exists...");
-
-                                namespaceAlreadyExists = true;
-                            }
-                            catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException checkNamespaceErrorResponseException) when (checkNamespaceErrorResponseException.Response.StatusCode == HttpStatusCode.NotFound)
-                            {
-                                Console.WriteLine("❔ Namespace does not exist, create now? (y/n)");
-
-                                if (Console.ReadKey(true).Key != ConsoleKey.Y)
-                                {
-                                    Console.WriteLine("🏳 Ok, auto initialization canceled.");
-
-                                    return;
-                                }
-                            }
-                            catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException checkNamespaceErrorResponseException)
-                            {
-                                if (checkNamespaceErrorResponseException.Response.StatusCode != HttpStatusCode.NotFound)
-                                {
-                                    Console.WriteLine($"💥 Unexpected status received while checking for namespace: {checkNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{checkNamespaceErrorResponseException.Body.Message}");
-
-                                    return;
-                                }
-                            }
-                        }
-
-                        if (!namespaceAlreadyExists)
-                        {
-                            Console.WriteLine("🛠 Creating namespace...");
-
-                            try
-                            {
-                                await relayManagementClient.Namespaces.CreateOrUpdateWithHttpMessagesAsync(
-                                    azureRelayOptions.ResourceGroup,
-                                    azureRelayOptions.RelayNamespace,
-                                    new Microsoft.Azure.Management.Relay.Models.RelayNamespace
-                                    {
-                                        Location = azureRelayOptions.RelayNamespaceLocation
-                                    },
-                                    cancellationToken: cancellationToken);
-
-                                Console.WriteLine("👍 Namespace created!");
-
-                                namespaceWasAutoCreated = true;
-                            }
-                            catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createNamespaceErrorResponseException)
-                            {
-                                Console.WriteLine($"💥 Unexpected status received while attempting to create namespace: {createNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{createNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{createNamespaceErrorResponseException.Body.Message}");
-
-                                return;
-                            }
-                        }
-
-                        Console.WriteLine("🛠 Creating Hybrid Connection...");
-
-                        if (azureRelayOptions.RelayConnectionName is null or { Length: 0 })
-                        {
-                            azureRelayOptions = azureRelayOptions with { RelayConnectionName = $"ikspoz-auto-connection-{Guid.NewGuid():N}" };
-                        }
-
-                        try
-                        {
-                            await relayManagementClient.HybridConnections.CreateOrUpdateWithHttpMessagesAsync(
-                                azureRelayOptions.ResourceGroup,
-                                azureRelayOptions.RelayNamespace,
-                                azureRelayOptions.RelayConnectionName,
-                                new Microsoft.Azure.Management.Relay.Models.HybridConnection
-                                {
-                                    RequiresClientAuthorization = false,
-                                    UserMetadata = ".ikspoz-auto-generated-connection"
-                                },
-                                cancellationToken: cancellationToken);
-
-                            Console.WriteLine("👍 Auto mode Hybrid Connection created!");
-                        }
-                        catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createConnectionErrorResponseException)
-                        {
-                            Console.WriteLine($"💥 Unexpected status received while creating connection: {createConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{createConnectionErrorResponseException.Body.Code}{Environment.NewLine}{createConnectionErrorResponseException.Body.Message}");
-
-                            return;
-                        }
-
-                        var randomAuthorizationRuleName = $".ikspoz-{Guid.NewGuid():N}";
-
-                        Console.WriteLine("🛠 Creating authorization rule to listen to Hybrid Connection...");
-
-                        var authorizationRuleConnectionString = string.Empty;
-
-                        try
-                        {
-                            await relayManagementClient.HybridConnections.CreateOrUpdateAuthorizationRuleWithHttpMessagesAsync(
-                                azureRelayOptions.ResourceGroup,
-                                azureRelayOptions.RelayNamespace,
-                                azureRelayOptions.RelayConnectionName,
-                                randomAuthorizationRuleName,
-                                new Microsoft.Azure.Management.Relay.Models.AuthorizationRule
-                                {
-                                    Rights = new List<Microsoft.Azure.Management.Relay.Models.AccessRights?> { Microsoft.Azure.Management.Relay.Models.AccessRights.Listen }
-                                },
-                                cancellationToken: cancellationToken);
-
-                            var listAccessKeysResponse = await relayManagementClient.HybridConnections.ListKeysWithHttpMessagesAsync(azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName, randomAuthorizationRuleName, cancellationToken: cancellationToken);
-
-                            authorizationRuleConnectionString = listAccessKeysResponse.Body.PrimaryConnectionString;
-                        }
-                        catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException createAuthorizationRuleErrorResponseException)
-                        {
-                            Console.WriteLine($"💥 Unexpected status received while creating authorization rule: {createAuthorizationRuleErrorResponseException.Response.StatusCode}{Environment.NewLine}{createAuthorizationRuleErrorResponseException.Body.Code}{Environment.NewLine}{createAuthorizationRuleErrorResponseException.Body.Message}");
-
-                            return;
-                        }
-
-                        Console.WriteLine("👍 Auto mode Hybrid Connection authorization rule created!");
-
-                        userSettings = userSettings with { AzureRelayAutoInstance = new UserSettingsConfiguredAzureRelayAutoInstance(tenantId, subscriptionId, azureRelayOptions.ResourceGroup, azureRelayOptions.RelayNamespace, azureRelayOptions.RelayConnectionName!, authorizationRuleConnectionString, namespaceWasAutoCreated) };
-
-                        await userSettingsManager.SaveUserSettingsAsync(userSettings);
                     });
 
                     return initializeCommand;
@@ -382,7 +245,7 @@ namespace Ikspoz.Cli
 
                     cleanupCommand.AddAlias("clean");
                     cleanupCommand.AddAlias("c");
-                    cleanupCommand.Handler = CommandHandler.Create(async (string? tenantId, IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    cleanupCommand.Handler = CommandHandler.Create(async (IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
                     {
                         var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -403,55 +266,17 @@ namespace Ikspoz.Cli
 
                             Console.WriteLine("👍 Ok, beginning resource cleanup.");
 
-                            var token = await azureAuthTokenProvider.GetTokenAsync(cancellationToken);
+                            var azureRelayHybridConnectionManager = new AzureRelayHybridConnectionManager(azureAuthTokenProvider);
 
-                            var relayManagementClient = new Microsoft.Azure.Management.Relay.RelayManagementClient(new Microsoft.Rest.TokenCredentials(token))
-                            {
-                                SubscriptionId = userSettings.AzureRelayAutoInstance.SubscriptionId,
-                            };
+                            var azureRelayConnectionToDelete = new AzureRelayOptions(
+                                userSettings.AzureRelayAutoInstance.SubscriptionId,
+                                userSettings.AzureRelayAutoInstance.ResourceGroup,
+                                userSettings.AzureRelayAutoInstance.RelayNamespace,
+                                string.Empty,
+                                userSettings.AzureRelayAutoInstance.ConnectionName);
 
-                            if (userSettings.AzureRelayAutoInstance.NamespaceWasAutoCreated)
-                            {
-                                Console.WriteLine("🗑 Deleting namespace...");
+                            await azureRelayHybridConnectionManager.DeleteConnectionAsync(azureRelayConnectionToDelete, userSettings.AzureRelayAutoInstance.NamespaceWasAutoCreated, cancellationToken);
 
-                                try
-                                {
-                                    await relayManagementClient.Namespaces.DeleteWithHttpMessagesAsync(
-                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
-                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
-                                        cancellationToken: cancellationToken);
-
-                                    Console.WriteLine("👍 Namespace deleted!");
-
-                                }
-                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteNamespaceErrorResponseException)
-                                {
-                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete namespace: {deleteNamespaceErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteNamespaceErrorResponseException.Body.Code}{Environment.NewLine}{deleteNamespaceErrorResponseException.Body.Message}");
-
-                                    return;
-                                }
-                            }
-                            else
-                            {
-                                Console.WriteLine("🗑 Deleting Hybrid Connection...");
-
-                                try
-                                {
-                                    await relayManagementClient.HybridConnections.DeleteWithHttpMessagesAsync(
-                                        userSettings.AzureRelayAutoInstance.ResourceGroup,
-                                        userSettings.AzureRelayAutoInstance.RelayNamespace,
-                                        userSettings.AzureRelayAutoInstance.ConnectionName,
-                                        cancellationToken: cancellationToken);
-
-                                    Console.WriteLine("👍 Hybrid Connection deleted!");
-                                }
-                                catch (Microsoft.Azure.Management.Relay.Models.ErrorResponseException deleteHybridConnectionErrorResponseException)
-                                {
-                                    Console.WriteLine($"💥 Unexpected status received while attempting to delete Hybrid Connection: {deleteHybridConnectionErrorResponseException.Response.StatusCode}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Code}{Environment.NewLine}{deleteHybridConnectionErrorResponseException.Body.Message}");
-
-                                    return;
-                                }
-                            }
                             userSettings = userSettings with { AzureRelayAutoInstance = null };
                             await userSettingsManager.SaveUserSettingsAsync(userSettings);
                         }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.CommandLine.Builder;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -228,5 +229,13 @@ namespace Ikspoz.Cli
                 }
             }
         }
+    }
+
+    internal static class AzureRelayHybridConnectionManagerCommandLineBuilderExtensions
+    {
+        public static CommandLineBuilder UseAzureRelayHybridConnectionManager(this CommandLineBuilder commandLineBuilder) =>
+            commandLineBuilder.UseMiddleware(context =>
+                context.BindingContext.AddService<IAzureRelayHybridConnectionManager>(
+                    sp => new AzureRelayHybridConnectionManager(sp.GetService(typeof(IAzureAuthTokenProvider)) as IAzureAuthTokenProvider ?? throw new InvalidOperationException($"No {nameof(IAzureAuthTokenProvider)} service was found."))));
     }
 }

@@ -28,6 +28,7 @@ namespace Ikspoz.Cli
                 .UseMiddleware(DisplayBanner)
                 .UseUserSettingsFileSystemBasedManager(homeDirectory)
                 .UseDefaultAzureAuthTokenProvider()
+                .UseAzureRelayHybridConnectionManager()
                 .Build()
                 .InvokeAsync(args);
         }
@@ -113,7 +114,7 @@ namespace Ikspoz.Cli
                     initializeCommand.AddOption(BuildAzureRelayNamespaceOption());
                     initializeCommand.AddOption(BuildAzureRelayNamespaceLocationOption());
 
-                    initializeCommand.Handler = CommandHandler.Create(async (AzureRelayOptions azureRelayOptions, IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    initializeCommand.Handler = CommandHandler.Create(async (AzureRelayOptions azureRelayOptions, IAzureRelayHybridConnectionManager azureRelayConnectionManager, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
                     {
                         var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -130,8 +131,6 @@ namespace Ikspoz.Cli
 
                             Console.WriteLine($"👍 Ok, beginning re-initialization.{Environment.NewLine}");
                         }
-
-                        var azureRelayConnectionManager = new AzureRelayHybridConnectionManager(azureAuthTokenProvider);
 
                         var azureRelayConnectionCreationResult = await azureRelayConnectionManager.CreateConnectionAsync(azureRelayOptions, cancellationToken);
 
@@ -229,7 +228,7 @@ namespace Ikspoz.Cli
 
                     cleanupCommand.AddAlias("clean");
                     cleanupCommand.AddAlias("c");
-                    cleanupCommand.Handler = CommandHandler.Create(async (IAzureAuthTokenProvider azureAuthTokenProvider, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
+                    cleanupCommand.Handler = CommandHandler.Create(async (IAzureRelayHybridConnectionManager azureRelayHybridConnectionManager, IUserSettingsManager userSettingsManager, CancellationToken cancellationToken) =>
                     {
                         var userSettings = await userSettingsManager.GetUserSettingsAsync();
 
@@ -249,8 +248,6 @@ namespace Ikspoz.Cli
                             }
 
                             Console.WriteLine("👍 Ok, beginning resource cleanup.");
-
-                            var azureRelayHybridConnectionManager = new AzureRelayHybridConnectionManager(azureAuthTokenProvider);
 
                             var azureRelayConnectionToDelete = new AzureRelayOptions(
                                 userSettings.AzureRelayAutoInstance.SubscriptionId,

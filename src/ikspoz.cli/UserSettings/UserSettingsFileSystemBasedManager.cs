@@ -1,3 +1,4 @@
+using System.CommandLine.Builder;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -33,5 +34,14 @@ namespace Ikspoz.Cli.Settings
 
             await _userSettingsSerializer.SerializeAsync(userSettings, settingsDataStream);
         }
+    }
+
+    internal static class UserSettingsFileSystemBasedManagerCommandLineBuilderExtensions
+    {
+        public static CommandLineBuilder UseUserSettingsFileSystemBasedManager(this CommandLineBuilder commandLineBuilder, string settingsDirectory) =>
+            commandLineBuilder.UseMiddleware((context) =>
+            {
+                context.BindingContext.AddService<IUserSettingsManager>(sp => new UserSettingsFileSystemBasedManager(Path.Combine(settingsDirectory, ".ikspoz"), sp.GetService(typeof(IUserSettingsSerializer)) as IUserSettingsSerializer ?? new UserSettingsJsonSerializer()));
+            });
     }
 }

@@ -1,17 +1,15 @@
 using System;
-using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
-using System.CommandLine.Rendering;
 using System.IO;
-using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Ikspoz.Cli.Settings;
+using Ikspoz.Cli.UI;
 
 namespace Ikspoz.Cli
 {
@@ -25,32 +23,13 @@ namespace Ikspoz.Cli
 
             return await new CommandLineBuilder(BuildRootCommand())
                 .UseDefaults()
-                .UseMiddleware(DisplayBanner)
+                .UseAppBanner()
                 .UseUserSettingsFileSystemBasedManager(homeDirectory)
                 .UseDefaultAzureAuthTokenProvider()
                 .UseAzureRelayHybridConnectionManager()
                 .Build()
                 .InvokeAsync(args);
         }
-
-        private static void DisplayBanner(InvocationContext context)
-        {
-            if (!context.ParseResult.HasOption("--no-banner"))
-            {
-                Console.WriteLine(@"
-                            ██████╗
-                            ╚═════╝
-██╗██╗  ██╗███████╗██████╗  ██████╗ ███████╗
-██║██║ ██╔╝██╔════╝██╔══██╗██╔═══██╗╚══███╔╝
-██║█████╔╝ ███████╗██████╔╝██║   ██║  ███╔╝
-██║██╔═██╗ ╚════██║██╔═══╝ ██║   ██║ ███╔╝
-██║██║  ██╗███████║██║     ╚██████╔╝███████╗
-╚═╝╚═╝  ╚═╝╚══════╝╚═╝      ╚═════╝ ╚══════╝");
-
-                Console.WriteLine(@$"v{GetAppDisplayVersion()}{Environment.NewLine}");
-            }
-        }
-        private static string GetAppDisplayVersion() => typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
 
         private static Command BuildAzureRelayCommand()
         {

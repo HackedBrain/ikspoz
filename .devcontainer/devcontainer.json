@@ -1,5 +1,5 @@
 {
-  "name": ".NET 6",
+  "name": ".NET 5",
   "runArgs": [
     "--init"
   ],
@@ -17,12 +17,8 @@
     "EditorConfig.EditorConfig",
     "formulahendry.dotnet-test-explorer",
     "GitHub.vscode-pull-request-github",
-    "hbenl.vscode-test-explorer",
-    "hbenl.vscode-test-explorer-liveshare",
     "ms-dotnettools.csharp",
-    "ms-vscode.test-adapter-converter",
     "ms-vsliveshare.vsliveshare",
-    "msazurermtools.azurerm-vscode-tools",
     "stkb.rewrap",
     "streetsidesoftware.code-spell-checker",
     "vscode-icons-team.vscode-icons",
